@@ -1,0 +1,67 @@
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { Plus, X } from "lucide-react";
+import { useNotes } from "@/hooks/useData";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
+export default function NotesPage() {
+  const { notes } = useNotes();
+  const [showModal, setShowModal] = useState(false);
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-foreground">My Notes</h1>
+        <Button className="rounded-xl gap-2" onClick={() => setShowModal(true)}>
+          <Plus className="w-4 h-4" /> New note
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        {notes.map((note, i) => (
+          <motion.div
+            key={note.id}
+            className={`rounded-2xl p-5 ${note.color === "purple" ? "card-purple" : "card-green"}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.08 }}
+          >
+            <div className="flex items-start justify-between mb-2">
+              <h3 className="font-semibold text-sm">{note.title}</h3>
+              <button className="opacity-60 hover:opacity-100 text-sm">•••</button>
+            </div>
+            <p className="text-xs leading-relaxed opacity-80 line-clamp-5">{note.content}</p>
+            <p className="text-xs opacity-60 mt-3">{note.date}</p>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* New Note Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-foreground/10" onClick={() => setShowModal(false)} />
+          <motion.div
+            className="relative bg-card rounded-2xl border shadow-elevated p-6 w-full max-w-md z-10"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-foreground">New Note</h2>
+              <button onClick={() => setShowModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <Input placeholder="Note title" className="rounded-xl" />
+              <Textarea placeholder="Write your note..." className="rounded-xl min-h-[120px]" />
+              <div className="flex gap-2">
+                <button className="w-8 h-8 rounded-lg card-green" />
+                <button className="w-8 h-8 rounded-lg card-purple" />
+              </div>
+              <Button className="w-full rounded-xl">Save note</Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+}
