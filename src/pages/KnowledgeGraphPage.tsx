@@ -4,14 +4,17 @@ import { Network, CheckCircle2, Circle, Lock, Loader2 } from "lucide-react";
 import { KnowledgeGraph } from "@/components/KnowledgeGraph/KnowledgeGraph";
 import { useUserSubjects } from "@/hooks/useSubjects";
 import { SUBJECT_COLORS } from "@/lib/buildGraphData";
+import { getExtracurricularSubjects, EXTRACURRICULAR_IDS } from "@/lib/extracurricularCourses";
 
 export default function KnowledgeGraphPage() {
   const { data: courses = [], isLoading } = useUserSubjects();
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
 
+  const allCourses = useMemo(() => [...courses, ...getExtracurricularSubjects()], [courses]);
+
   const stats = useMemo(() => {
     let totalSkills = 0, completed = 0, unlocked = 0, subjectsInProgress = 0;
-    courses.forEach((c) => {
+    allCourses.forEach((c) => {
       let hasUnlocked = false;
       c.topics.forEach((t) => {
         totalSkills++;
@@ -23,7 +26,7 @@ export default function KnowledgeGraphPage() {
       }
     });
     return { totalSkills, completed, unlocked: completed + unlocked, subjectsInProgress };
-  }, [courses]);
+  }, [allCourses]);
 
   const toggleSubject = (id: string) => setActiveSubject((prev) => (prev === id ? null : id));
 
@@ -60,14 +63,16 @@ export default function KnowledgeGraphPage() {
         <div className="mb-6">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Filter by Subject</p>
           <div className="space-y-1">
-            {courses.map((course) => {
-              const color = SUBJECT_COLORS[course.id] ?? "#ccc";
+            {allCourses.map((course) => {
+              const color = SUBJECT_COLORS[course.id] ?? (EXTRACURRICULAR_IDS.has(course.id) ? "#999" : "#ccc");
               const isActive = activeSubject === course.id;
+              const isEC = EXTRACURRICULAR_IDS.has(course.id);
               return (
                 <button key={course.id} onClick={() => toggleSubject(course.id)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${isActive ? "bg-secondary text-foreground ring-1 ring-border" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
-                  <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                  <div className={`w-3 h-3 rounded-full shrink-0 ${isEC ? "border border-dashed border-muted-foreground" : ""}`} style={{ backgroundColor: isEC ? "transparent" : color }} />
                   <span>{course.name}</span>
+                  {isEC && <span className="text-[9px] text-muted-foreground/60 ml-0.5">EC</span>}
                   <span className="ml-auto text-[10px] opacity-60">{course.icon}</span>
                 </button>
               );
@@ -86,7 +91,7 @@ export default function KnowledgeGraphPage() {
       </motion.div>
 
       <div className="flex-1 min-w-0 h-full">
-        <KnowledgeGraph activeSubject={activeSubject} courses={courses} />
+        <KnowledgeGraph activeSubject={activeSubject} courses={allCourses} />
       </div>
     </div>
   );

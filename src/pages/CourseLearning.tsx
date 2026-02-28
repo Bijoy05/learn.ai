@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import { Send, ChevronRight, GitBranch, Circle, Loader2, CheckCircle2, Plus, MessageSquare } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useUserSubjects, useUpdateTopicProgress } from "@/hooks/useSubjects";
+import type { Subject } from "@/hooks/useSubjects";
+import { EXTRACURRICULAR_IDS, getExtracurricularSubjects } from "@/lib/extracurricularCourses";
 import { useChatMessages, type ChatMessage } from "@/hooks/useChatMessages";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useAuth } from "@/contexts/AuthContext";
@@ -211,11 +213,13 @@ export default function CourseLearning() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: courses = [] } = useUserSubjects();
+  const ecSubjects = getExtracurricularSubjects();
+  const allCourses = [...courses, ...ecSubjects];
   const { supabaseUser } = useAuth();
   const qc = useQueryClient();
   const updateProgress = useUpdateTopicProgress();
-  const course = courses.find((c) => c.id === id);
-
+  const course = allCourses.find((c) => c.id === id);
+  const isEC = EXTRACURRICULAR_IDS.has(id ?? "");
   // Active topic selection
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const [hasAutoInitiated, setHasAutoInitiated] = useState<Set<string>>(new Set());

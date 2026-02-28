@@ -26,6 +26,11 @@ export const SUBJECT_COLORS: Record<string, string> = {
   eng: "#84d4f9",
   phys: "#f9c784",
   hist: "#f4a4a4",
+  "ec-ai-literacy": "#a28ef9",
+  "ec-online-safety": "#a4f5a6",
+  "ec-financial-literacy": "#f9c784",
+  "ec-critical-thinking": "#f4a4a4",
+  "ec-mental-health": "#84d4f9",
 };
 
 export const NODE_RADIUS: Record<NodeType, number> = {

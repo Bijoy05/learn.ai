@@ -1,14 +1,16 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { useUserSubjects } from "@/hooks/useSubjects";
 import { useNotes } from "@/hooks/useNotes";
 import { Progress } from "@/components/ui/progress";
 import { Loader2 } from "lucide-react";
+import { EXTRACURRICULAR_COURSES } from "@/lib/extracurricularCourses";
 
 export default function DashboardHome() {
   const { data: courses = [], isLoading } = useUserSubjects();
   const { data: notes = [] } = useNotes();
+  const navigate = useNavigate();
 
   if (isLoading) return <div className="p-6 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
 
@@ -50,6 +52,13 @@ export default function DashboardHome() {
             })}
           </div>
         )}
+        {/* EC link */}
+        <button
+          onClick={() => navigate("/dashboard/courses")}
+          className="mt-3 text-xs text-accent hover:underline font-medium"
+        >
+          + View extra-curricular courses ({EXTRACURRICULAR_COURSES.length} available)
+        </button>
       </section>
 
       {/* Notes */}

@@ -10,6 +10,7 @@ import {
   buildGraphData,
 } from "@/lib/buildGraphData";
 import type { Subject } from "@/hooks/useSubjects";
+import { EXTRACURRICULAR_IDS } from "@/lib/extracurricularCourses";
 
 interface TooltipState {
   visible: boolean;
@@ -323,17 +324,22 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
                 )}
 
                 {/* Main circle */}
-                {node.x != null && node.y != null && (
-                  <circle
-                    cx={node.x}
-                    cy={node.y}
-                    r={isHovered && !isUser ? r + 3 : r}
-                    fill={color}
-                    stroke={isHovered ? color : "transparent"}
-                    strokeWidth={isHovered ? 3 : 0}
-                    style={{ transition: "r 200ms ease, stroke 200ms ease" }}
-                  />
-                )}
+                {node.x != null && node.y != null && (() => {
+                  const ecSubjectId = node.type === "subject" ? node.id : node.subjectId ?? "";
+                  const isEC = EXTRACURRICULAR_IDS.has(ecSubjectId);
+                  return (
+                    <circle
+                      cx={node.x}
+                      cy={node.y}
+                      r={isHovered && !isUser ? r + 3 : r}
+                      fill={color}
+                      stroke={isHovered ? color : isEC ? color : "transparent"}
+                      strokeWidth={isHovered ? 3 : isEC ? 2 : 0}
+                      strokeDasharray={isEC ? "6 3" : "none"}
+                      style={{ transition: "r 200ms ease, stroke 200ms ease" }}
+                    />
+                  );
+                })()}
 
                 {/* Completed badge for skills */}
                 {node.status === "completed" && node.type === "skill" && node.x != null && node.y != null && (
