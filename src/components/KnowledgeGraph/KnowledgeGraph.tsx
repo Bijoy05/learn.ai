@@ -265,9 +265,7 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
             const isHovered = hoveredId === node.id;
             const isUser = node.type === "user";
             const highlighted = isHighlighted(node);
-            const statusOpacity =
-              node.status === "completed" ? 1 : node.status === "unlocked" ? 0.85 : 0.3;
-            const finalOpacity = highlighted ? statusOpacity : 0.08;
+            const finalOpacity = highlighted ? 1 : 0.08;
 
             return (
               <motion.g
