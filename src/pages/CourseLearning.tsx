@@ -214,12 +214,31 @@ export default function CourseLearning() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: courses = [] } = useUserSubjects();
   const ecSubjects = getExtracurricularSubjects();
-  const allCourses = [...courses, ...ecSubjects];
+  // Merge EC subjects that aren't already in user's courses (avoids duplicates after enrollment)
+  const allCourses = [
+    ...courses,
+    ...ecSubjects.filter((ec) => !courses.find((c) => c.id === ec.id)),
+  ];
   const { supabaseUser } = useAuth();
   const qc = useQueryClient();
   const updateProgress = useUpdateTopicProgress();
   const course = allCourses.find((c) => c.id === id);
   const isEC = EXTRACURRICULAR_IDS.has(id ?? "");
+
+  // Auto-enroll user in EC course if not already in user_subjects
+  const [ecEnrolled, setEcEnrolled] = useState(false);
+  useEffect(() => {
+    if (isEC && supabaseUser && id && !courses.find((c) => c.id === id)) {
+      supabase
+        .from("user_subjects")
+        .upsert({ user_id: supabaseUser.id, subject_id: id }, { onConflict: "user_id,subject_id", ignoreDuplicates: true })
+        .then(() => {
+          setEcEnrolled(true);
+          qc.invalidateQueries({ queryKey: ["user_subjects"] });
+        });
+    }
+  }, [isEC, supabaseUser, id, courses.length]);
+
   // Active topic selection
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const [hasAutoInitiated, setHasAutoInitiated] = useState<Set<string>>(new Set());

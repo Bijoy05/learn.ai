@@ -10,7 +10,10 @@ export default function KnowledgeGraphPage() {
   const { data: courses = [], isLoading } = useUserSubjects();
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
 
-  const allCourses = useMemo(() => [...courses, ...getExtracurricularSubjects()], [courses]);
+  const allCourses = useMemo(() => {
+    const ec = getExtracurricularSubjects();
+    return [...courses, ...ec.filter((e) => !courses.find((c) => c.id === e.id))];
+  }, [courses]);
 
   const stats = useMemo(() => {
     let totalSkills = 0, completed = 0, unlocked = 0, subjectsInProgress = 0;
