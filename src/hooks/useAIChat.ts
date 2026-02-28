@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
+const OPENROUTER_API_KEY = "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";
 
 export function useAIChat(subjectId: string, subjectName: string, topicName?: string) {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -19,27 +19,99 @@ export function useAIChat(subjectId: string, subjectName: string, topicName?: st
     setStreamingContent("");
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
+      // Save student message first
+      await supabase.from("chat_messages").insert({
+        user_id: supabaseUser.id,
+        subject_id: subjectId,
+        role: "student",
+        content: message,
+        message_type: "text",
+      });
+      qc.invalidateQueries({ queryKey: ["chat_messages", supabaseUser.id, subjectId] });
 
-      const resp = await fetch(CHAT_URL, {
+      // Fetch user preferences
+      const { data: prefs } = await supabase
+        .from("onboarding_responses")
+        .select("question_text, answer")
+        .eq("user_id", supabaseUser.id);
+
+      const prefContext = (prefs || [])
+        .map((p) => `${p.question_text}: ${typeof p.answer === "string" ? p.answer : JSON.stringify(p.answer)}`)
+        .join("\n");
+
+      // Fetch recent chat history
+      const { data: history } = await supabase
+        .from("chat_messages")
+        .select("role, content, message_type")
+        .eq("user_id", supabaseUser.id)
+        .eq("subject_id", subjectId)
+        .order("created_at", { ascending: true })
+        .limit(30);
+
+      const chatHistory = (history || []).map((m) => ({
+        role: m.role === "student" ? "user" as const : "assistant" as const,
+        content: m.content,
+      }));
+
+      const systemPrompt = `You are an expert, caring ${subjectName} teacher for a student. Your goal is to help them deeply understand ${topicName || "the current topic"} in ${subjectName}.
+
+## Student Learning Profile
+${prefContext || "No preferences available yet."}
+
+## Your Teaching Style Rules
+- Adapt your explanations to match how this student learns best (see their preferences above)
+- Be encouraging, patient, and break complex ideas into digestible steps
+- Use analogies and real-world examples relevant to their grade level
+- Keep responses focused and not too long unless they ask for detail
+
+## Rich Content Generation
+You can generate special interactive content by wrapping it in specific tags. Use these FREQUENTLY to make learning engaging:
+
+### Quizzes
+When testing understanding, generate a quiz block like this:
+\`\`\`quiz
+{"question":"What is 2+2?","options":["3","4","5","6"],"correct":1,"explanation":"2+2 equals 4 because adding two groups of two gives four total."}
+\`\`\`
+
+### Charts/Graphs  
+When explaining data, trends, or mathematical functions, generate chart data:
+\`\`\`chart
+{"title":"y = 2x","data":[{"x":0,"y":0},{"x":1,"y":2},{"x":2,"y":4},{"x":3,"y":6},{"x":4,"y":8}]}
+\`\`\`
+
+### Callouts
+For important tips, warnings, or key takeaways:
+\`\`\`callout
+Remember: Always check your units when solving physics problems!
+\`\`\`
+
+## Important
+- Generate quizzes after explaining concepts to check understanding
+- Use charts whenever discussing numerical relationships or data
+- Make quizzes have 4 options, with clear explanations for the correct answer
+- Keep quiz questions at the student's grade level
+- Be conversational and friendly, like a real tutor`;
+
+      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({
-          subject_id: subjectId,
-          subject_name: subjectName,
-          topic_name: topicName,
-          message,
+          model: "openai/gpt-5.2",
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...chatHistory,
+            { role: "user", content: message },
+          ],
+          stream: true,
         }),
       });
 
       if (!resp.ok || !resp.body) {
         const err = await resp.json().catch(() => ({ error: "AI service error" }));
-        toast.error(err.error || "Failed to get AI response");
+        toast.error(err.error?.message || err.error || "Failed to get AI response");
         setIsStreaming(false);
         return;
       }
