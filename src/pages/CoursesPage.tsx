@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { useUserSubjects } from "@/hooks/useSubjects";
 import { Progress } from "@/components/ui/progress";
 import { ArrowRight, Loader2 } from "lucide-react";
-import { EXTRACURRICULAR_COURSES, ecToSubject } from "@/lib/extracurricularCourses";
+import { EXTRACURRICULAR_COURSES, EXTRACURRICULAR_IDS, ecToSubject } from "@/lib/extracurricularCourses";
 import type { Subject } from "@/hooks/useSubjects";
 
 function CourseCard({ course, index, isEC = false }: { course: Subject; index: number; isEC?: boolean }) {
@@ -43,7 +43,8 @@ function CourseCard({ course, index, isEC = false }: { course: Subject; index: n
 }
 
 export default function CoursesPage() {
-  const { data: courses = [], isLoading } = useUserSubjects();
+  const { data: allUserCourses = [], isLoading } = useUserSubjects();
+  const courses = allUserCourses.filter((c) => !EXTRACURRICULAR_IDS.has(c.id));
   const ecSubjects = EXTRACURRICULAR_COURSES.map(ecToSubject);
 
   if (isLoading) return <div className="p-6 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
