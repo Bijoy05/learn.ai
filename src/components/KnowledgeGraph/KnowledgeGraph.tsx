@@ -189,7 +189,7 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-background" onMouseMove={handleMouseMove}>
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-white" onMouseMove={handleMouseMove}>
       {/* Reset button */}
       <button
         onClick={resetZoom}
@@ -250,7 +250,7 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
                 x2={tgt.x}
                 y2={tgt.y}
                 stroke={edgeColor}
-                strokeWidth={2.5}
+                strokeWidth={3.5}
                 strokeOpacity={highlighted ? (isLocked ? 0.2 : 0.35) : 0.06}
                 strokeDasharray={isLocked ? "6 4" : "none"}
                 style={{ transition: "stroke-opacity 300ms ease" }}
@@ -332,11 +332,11 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
                       cx={node.x}
                       cy={node.y}
                       r={isHovered && !isUser ? r + 3 : r}
-                      fill={isEC ? "none" : color}
+                      fill={isEC ? (isHovered ? `${color}22` : "white") : color}
                       stroke={isHovered ? color : isEC ? color : "transparent"}
                       strokeWidth={isHovered ? 3 : isEC ? 2.5 : 0}
                       strokeDasharray={isEC ? "6 3" : "none"}
-                      style={{ transition: "r 200ms ease, stroke 200ms ease" }}
+                      style={{ transition: "r 200ms ease, stroke 200ms ease, fill 200ms ease" }}
                     />
                   );
                 })()}
