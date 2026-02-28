@@ -55,8 +55,56 @@ export default function DashboardHome() {
         </div>
       </section>
 
+      {/* Recent Activity */}
+      <section>
+        <h2 className="text-xl font-bold text-foreground mb-4">Recent Activity</h2>
+        <div className="space-y-2">
+          {courses.flatMap((course) =>
+            course.topics
+              .filter((t) => t.status !== "locked")
+              .flatMap((t) =>
+                t.sessions.filter((s) => s.date).map((s) => ({
+                  ...s,
+                  courseName: course.name,
+                  courseId: course.id,
+                  courseIcon: course.icon,
+                  courseColor: course.color,
+                }))
+              )
+          )
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .slice(0, 4)
+            .map((session, i) => (
+              <motion.div
+                key={session.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.3 + i * 0.05 }}
+              >
+                <Link
+                  to={`/dashboard/courses/${session.courseId}`}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-card border hover:bg-secondary transition-colors"
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${session.courseColor === "purple" ? "card-purple" : "card-green"}`}>
+                    {session.courseIcon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{session.topicName}</p>
+                    <p className="text-xs text-muted-foreground">{session.courseName}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      session.status === "complete" ? "bg-success" : session.status === "review" ? "bg-accent" : "bg-muted-foreground"
+                    }`} />
+                    <span className="text-xs text-muted-foreground">{session.date}</span>
+                  </div>
+                </Link>
+              </motion.div>
+            ))}
+        </div>
+      </section>
+
       <div className="grid lg:grid-cols-2 gap-6">
-        {/* Notes */}
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-foreground">My Notes</h2>
