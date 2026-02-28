@@ -5,10 +5,11 @@ import { useUserSubjects } from "@/hooks/useSubjects";
 import { useNotes } from "@/hooks/useNotes";
 import { Progress } from "@/components/ui/progress";
 import { Loader2 } from "lucide-react";
-import { EXTRACURRICULAR_COURSES } from "@/lib/extracurricularCourses";
+import { EXTRACURRICULAR_COURSES, EXTRACURRICULAR_IDS } from "@/lib/extracurricularCourses";
 
 export default function DashboardHome() {
-  const { data: courses = [], isLoading } = useUserSubjects();
+  const { data: allUserCourses = [], isLoading } = useUserSubjects();
+  const courses = allUserCourses.filter((c) => !EXTRACURRICULAR_IDS.has(c.id));
   const { data: notes = [] } = useNotes();
   const navigate = useNavigate();
 
