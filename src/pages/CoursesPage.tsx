@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useUserSubjects } from "@/hooks/useSubjects";
@@ -45,7 +46,13 @@ function CourseCard({ course, index, isEC = false }: { course: Subject; index: n
 export default function CoursesPage() {
   const { data: allUserCourses = [], isLoading } = useUserSubjects();
   const courses = allUserCourses.filter((c) => !EXTRACURRICULAR_IDS.has(c.id));
-  const ecSubjects = EXTRACURRICULAR_COURSES.map(ecToSubject);
+  // For EC subjects, prefer the user's enrolled data (with real progress) over hardcoded defaults
+  const ecSubjects = useMemo(() => {
+    return EXTRACURRICULAR_COURSES.map((ec) => {
+      const enrolled = allUserCourses.find((c) => c.id === ec.id);
+      return enrolled ?? ecToSubject(ec);
+    });
+  }, [allUserCourses]);
 
   if (isLoading) return <div className="p-6 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
 
