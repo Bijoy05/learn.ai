@@ -2,13 +2,113 @@ import { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Send, ChevronRight, GitBranch, Circle, Loader2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { useUserSubjects } from "@/hooks/useSubjects";
 import { useChatMessages, type ChatMessage } from "@/hooks/useChatMessages";
 import { useAIChat } from "@/hooks/useAIChat";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  PieChart, Pie, Cell, BarChart, Bar,
+} from "recharts";
+
+const CHART_COLORS = [
+  "hsl(252, 90%, 67%)", "hsl(142, 71%, 45%)", "hsl(38, 92%, 50%)",
+  "hsl(0, 84%, 60%)", "hsl(199, 89%, 48%)", "hsl(280, 65%, 60%)",
+];
+
+function RenderChart({ chartData }: { chartData: any }) {
+  const type = chartData.type || "line";
+  const data = chartData.data || [];
+
+  if (type === "pie") {
+    return (
+      <div className="bg-card border rounded-2xl p-4 max-w-lg">
+        <p className="text-sm font-medium text-foreground mb-3">{chartData.title || "Chart"}</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+              {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  if (type === "bar") {
+    const keys = Object.keys(data[0] || {}).filter(k => k !== "x" && k !== "name" && k !== "label");
+    return (
+      <div className="bg-card border rounded-2xl p-4 max-w-lg">
+        <p className="text-sm font-medium text-foreground mb-3">{chartData.title || "Chart"}</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey={data[0]?.name !== undefined ? "name" : "x"} tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} />
+            <Tooltip />
+            <Legend />
+            {keys.map((key, idx) => <Bar key={key} dataKey={key} fill={CHART_COLORS[idx % CHART_COLORS.length]} radius={[4, 4, 0, 0]} />)}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  // Default: line chart
+  const keys = Object.keys(data[0] || {}).filter(k => k !== "x");
+  return (
+    <div className="bg-card border rounded-2xl p-4 max-w-lg">
+      <p className="text-sm font-medium text-foreground mb-3">{chartData.title || "Chart"}</p>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="x" tick={{ fontSize: 12 }} />
+          <YAxis tick={{ fontSize: 12 }} />
+          <Tooltip />
+          <Legend />
+          {keys.map((key, idx) => <Line key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[idx % CHART_COLORS.length]} strokeWidth={2} dot={false} />)}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      components={{
+        h1: ({ children }) => <h1 className="text-lg font-bold mt-3 mb-1">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-base font-bold mt-3 mb-1">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-sm font-bold mt-2 mb-1">{children}</h3>,
+        h4: ({ children }) => <h4 className="text-sm font-semibold mt-2 mb-1">{children}</h4>,
+        p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
+        ul: ({ children }) => <ul className="list-disc ml-4 mb-2 space-y-1">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal ml-4 mb-2 space-y-1">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+        em: ({ children }) => <em className="italic">{children}</em>,
+        code: ({ className, children }) => {
+          const isInline = !className;
+          if (isInline) return <code className="bg-secondary px-1.5 py-0.5 rounded text-xs font-mono">{children}</code>;
+          return <pre className="bg-secondary rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono"><code>{children}</code></pre>;
+        },
+        blockquote: ({ children }) => <blockquote className="border-l-3 border-accent pl-3 my-2 text-muted-foreground italic">{children}</blockquote>,
+        table: ({ children }) => <div className="overflow-x-auto my-2"><table className="w-full text-sm border-collapse">{children}</table></div>,
+        thead: ({ children }) => <thead className="bg-secondary">{children}</thead>,
+        th: ({ children }) => <th className="px-3 py-2 text-left font-semibold border-b border-border">{children}</th>,
+        td: ({ children }) => <td className="px-3 py-2 border-b border-border">{children}</td>,
+        hr: () => <hr className="my-3 border-border" />,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
 
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   if (msg.role === "student") {
@@ -24,32 +124,13 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   if (msg.message_type === "callout") {
     return (
       <div className="bg-accent/10 border-l-4 border-accent rounded-xl p-4 max-w-lg">
-        <p className="text-sm text-foreground whitespace-pre-wrap">{msg.content}</p>
+        <div className="text-sm text-foreground"><MarkdownContent content={msg.content} /></div>
       </div>
     );
   }
 
   if (msg.message_type === "chart" && msg.metadata?.chartData) {
-    const chartData = msg.metadata.chartData;
-    return (
-      <div className="space-y-2 max-w-lg">
-        <div className="bg-card border rounded-2xl p-4">
-          <p className="text-sm text-foreground mb-3 font-medium">{chartData.title || msg.content}</p>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={chartData.data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="x" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Legend />
-              {Object.keys(chartData.data[0] || {}).filter(k => k !== 'x').map((key, idx) => (
-                <Line key={key} type="monotone" dataKey={key} stroke={["hsl(var(--primary))", "hsl(var(--accent))", "hsl(var(--destructive))"][idx % 3]} strokeWidth={2} dot={false} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    );
+    return <RenderChart chartData={msg.metadata.chartData} />;
   }
 
   if (msg.message_type === "quiz" && msg.metadata?.quizData) {
@@ -61,15 +142,8 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
       <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0 mt-1">
         <span className="text-xs text-accent-foreground font-bold">AI</span>
       </div>
-      <div className="bg-card border rounded-2xl rounded-bl-md px-5 py-3 text-sm text-foreground whitespace-pre-wrap">
-        {msg.content.split("\n").map((line, i) => {
-          if (line.startsWith("**") && line.endsWith("**")) return <p key={i} className="font-semibold">{line.replace(/\*\*/g, "")}</p>;
-          if (line.startsWith("- **")) {
-            const parts = line.replace("- **", "").split("**");
-            return <p key={i} className="ml-2">• <strong>{parts[0]}</strong>{parts.slice(1).join("")}</p>;
-          }
-          return <p key={i} className={line === "" ? "h-2" : ""}>{line}</p>;
-        })}
+      <div className="bg-card border rounded-2xl rounded-bl-md px-5 py-3 text-sm text-foreground">
+        <MarkdownContent content={msg.content} />
       </div>
     </div>
   );
@@ -81,8 +155,9 @@ function StreamingBubble({ content }: { content: string }) {
       <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0 mt-1 animate-pulse">
         <span className="text-xs text-accent-foreground font-bold">AI</span>
       </div>
-      <div className="bg-card border rounded-2xl rounded-bl-md px-5 py-3 text-sm text-foreground whitespace-pre-wrap">
-        {content}<span className="animate-pulse">▊</span>
+      <div className="bg-card border rounded-2xl rounded-bl-md px-5 py-3 text-sm text-foreground">
+        <MarkdownContent content={content} />
+        <span className="animate-pulse">▊</span>
       </div>
     </div>
   );
