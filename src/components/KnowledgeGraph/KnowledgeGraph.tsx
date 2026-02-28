@@ -189,7 +189,7 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-white" onMouseMove={handleMouseMove}>
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ backgroundColor: "#1a1a1a" }} onMouseMove={handleMouseMove}>
       {/* Reset button */}
       <button
         onClick={resetZoom}
@@ -210,7 +210,7 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
         <defs>
           {/* Dot pattern background */}
           <pattern id="dotGrid" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
-            <circle cx="12" cy="12" r="1" fill="hsl(220 20% 88%)" />
+            <circle cx="12" cy="12" r="1" fill="hsl(0 0% 30%)" />
           </pattern>
           {/* Glow filter */}
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -332,7 +332,7 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
                       cx={node.x}
                       cy={node.y}
                       r={isHovered && !isUser ? r + 3 : r}
-                      fill={isEC ? (isHovered ? `${color}22` : "white") : color}
+                      fill={isUser ? "white" : isEC ? (isHovered ? `${color}22` : "#1a1a1a") : color}
                       stroke={isHovered ? color : isEC ? color : "transparent"}
                       strokeWidth={isHovered ? 3 : isEC ? 2.5 : 0}
                       strokeDasharray={isEC ? "6 3" : "none"}
@@ -378,7 +378,7 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
                     y={node.y}
                     textAnchor="middle"
                     dominantBaseline="central"
-                    fill="white"
+                    fill="#1a1a1a"
                     fontSize={14}
                     fontWeight={700}
                     fontFamily="Fustat"
@@ -394,7 +394,7 @@ export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
                     x={node.x}
                     y={node.y + r + 16}
                     textAnchor="middle"
-                    fill="hsl(0 0% 13.3%)"
+                    fill="hsl(0 0% 85%)"
                     fontSize={node.type === "subject" ? 12 : 10}
                     fontWeight={node.type === "subject" ? 600 : 400}
                     fontFamily="Fustat"
