@@ -1,17 +1,23 @@
 import { useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, Search, X } from "lucide-react";
+import { Bell, Search, X, BookOpen, Award, RotateCcw } from "lucide-react";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNotifications } from "@/hooks/useData";
+import { useReviewNotifications } from "@/hooks/useReviewNotifications";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const { user } = useAuth();
-  const { notifications, unreadCount } = useNotifications();
+  const { reviews } = useReviewNotifications();
+  const navigate = useNavigate();
+
+  const handleReviewClick = (subjectId: string, topicId: string) => {
+    setShowNotifications(false);
+    navigate(`/dashboard/courses/${subjectId}?reviewTopic=${topicId}`);
+  };
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -30,8 +36,8 @@ export default function DashboardLayout() {
             <button onClick={() => setShowNotifications(true)}
               className="relative w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
               <Bell className="w-4 h-4" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 badge-purple rounded-full text-[10px] font-bold flex items-center justify-center">{unreadCount}</span>
+              {reviews.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 badge-purple rounded-full text-[10px] font-bold flex items-center justify-center">{reviews.length}</span>
               )}
             </button>
           </div>
@@ -52,15 +58,46 @@ export default function DashboardLayout() {
                 <h2 className="text-lg font-bold text-foreground">Notifications</h2>
                 <button onClick={() => setShowNotifications(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
               </div>
-              <div className="space-y-3">
-                {notifications.map((n) => (
-                  <div key={n.id} className={`p-4 rounded-xl border ${n.read ? "bg-background" : "bg-card"}`}>
-                    <p className="text-sm font-medium text-foreground">{n.title}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{n.description}</p>
-                    {n.type === "review" && <Button size="sm" className="mt-3 rounded-lg text-xs" variant="outline">Go to session</Button>}
+
+              {/* Review Section */}
+              {reviews.length > 0 && (
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <RotateCcw className="w-4 h-4 text-accent" />
+                    <h3 className="text-sm font-semibold text-foreground">Topics to Review</h3>
                   </div>
-                ))}
-              </div>
+                  <div className="space-y-3">
+                    {reviews.map((r) => (
+                      <div key={r.id} className="p-4 rounded-xl border bg-accent/5">
+                        <div className="flex items-start gap-3">
+                          <BookOpen className="w-4 h-4 text-accent mt-0.5 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground">{r.title}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{r.description}</p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-3 rounded-lg text-xs gap-1.5"
+                              onClick={() => handleReviewClick(r.subjectId, r.topicId)}
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              Start Review
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {reviews.length === 0 && (
+                <div className="text-center py-12">
+                  <Award className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">All caught up! No reviews needed right now.</p>
+                </div>
+              )}
             </motion.div>
           </>
         )}

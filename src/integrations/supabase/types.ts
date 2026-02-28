@@ -191,18 +191,21 @@ export type Database = {
           created_at: string
           id: string
           subject_id: string
+          topic_progress: Json
           user_id: string
         }
         Insert: {
           created_at?: string
           id?: string
           subject_id: string
+          topic_progress?: Json
           user_id: string
         }
         Update: {
           created_at?: string
           id?: string
           subject_id?: string
+          topic_progress?: Json
           user_id?: string
         }
         Relationships: [

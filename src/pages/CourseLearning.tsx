@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Send, ChevronRight, GitBranch, Circle, Loader2, CheckCircle2, Plus, MessageSquare } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { useUserSubjects } from "@/hooks/useSubjects";
+import { useUserSubjects, useUpdateTopicProgress } from "@/hooks/useSubjects";
 import { useChatMessages, type ChatMessage } from "@/hooks/useChatMessages";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useAuth } from "@/contexts/AuthContext";
@@ -113,7 +113,7 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function MessageBubble({ msg }: { msg: ChatMessage }) {
+function MessageBubble({ msg, onQuizAnswer }: { msg: ChatMessage; onQuizAnswer?: (result: string) => void }) {
   if (msg.role === "student") {
     return (
       <div className="flex justify-end">
@@ -137,7 +137,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   }
 
   if (msg.message_type === "quiz" && msg.metadata?.quizData) {
-    return <QuizCard quiz={msg.metadata.quizData} />;
+    return <QuizCard quiz={msg.metadata.quizData} onAnswer={onQuizAnswer} />;
   }
 
   return (
@@ -166,9 +166,21 @@ function StreamingBubble({ content }: { content: string }) {
   );
 }
 
-function QuizCard({ quiz }: { quiz: { question: string; options: string[]; correct: number; explanation: string } }) {
+function QuizCard({ quiz, onAnswer }: { quiz: { question: string; options: string[]; correct: number; explanation: string }; onAnswer?: (result: string) => void }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = () => {
+    setSubmitted(true);
+    if (onAnswer && selected !== null) {
+      const isCorrect = selected === quiz.correct;
+      const result = isCorrect
+        ? `I answered the quiz correctly! The answer was "${quiz.options[quiz.correct]}".`
+        : `I got the quiz wrong. I chose "${quiz.options[selected]}" but the correct answer was "${quiz.options[quiz.correct]}". ${quiz.explanation}`;
+      // Delay slightly so the student sees the result first
+      setTimeout(() => onAnswer(result), 1500);
+    }
+  };
 
   return (
     <div className="bg-card border rounded-2xl p-5 max-w-lg">
@@ -185,7 +197,7 @@ function QuizCard({ quiz }: { quiz: { question: string; options: string[]; corre
             }`} disabled={submitted}>{opt}</button>
         ))}
       </div>
-      {selected !== null && !submitted && <Button size="sm" className="mt-3 rounded-xl" onClick={() => setSubmitted(true)}>Check answer</Button>}
+      {selected !== null && !submitted && <Button size="sm" className="mt-3 rounded-xl" onClick={handleSubmit}>Check answer</Button>}
       {submitted && (
         <motion.p className={`mt-3 text-sm ${selected === quiz.correct ? "text-green-600" : "text-destructive"}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           {selected === quiz.correct ? "✅ Correct! " : "❌ Not quite. "}{quiz.explanation}
@@ -197,26 +209,46 @@ function QuizCard({ quiz }: { quiz: { question: string; options: string[]; corre
 
 export default function CourseLearning() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: courses = [] } = useUserSubjects();
   const { supabaseUser } = useAuth();
   const qc = useQueryClient();
+  const updateProgress = useUpdateTopicProgress();
   const course = courses.find((c) => c.id === id);
 
   // Active topic selection
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
+  const [hasAutoInitiated, setHasAutoInitiated] = useState<Set<string>>(new Set());
 
-  // Set initial active topic to first unlocked
+  // Check for review param (from notification center)
+  const reviewTopicId = searchParams.get("reviewTopic");
+
+  // Set initial active topic
   useEffect(() => {
     if (course && !activeTopicId) {
+      if (reviewTopicId) {
+        // Navigate to the review topic directly
+        const topic = course.topics.find((t) => t.id === reviewTopicId);
+        if (topic) {
+          setActiveTopicId(reviewTopicId);
+          searchParams.delete("reviewTopic");
+          setSearchParams(searchParams, { replace: true });
+          return;
+        }
+      }
       const firstUnlocked = course.topics.find((t) => t.status === "unlocked");
       if (firstUnlocked) setActiveTopicId(firstUnlocked.id);
+      else {
+        const firstCompleted = course.topics.find((t) => t.status === "completed");
+        if (firstCompleted) setActiveTopicId(firstCompleted.id);
+      }
     }
-  }, [course]);
+  }, [course, reviewTopicId]);
 
   const activeTopic = course?.topics.find((t) => t.id === activeTopicId);
 
   const { data: chatMessages = [], isLoading: messagesLoading } = useChatMessages(id || "", activeTopicId || undefined);
-  const { sendAndStream, isStreaming, streamingContent } = useAIChat(
+  const { sendAndStream, initiateSession, isStreaming, streamingContent } = useAIChat(
     id || "",
     course?.name || "",
     activeTopic?.name,
@@ -225,6 +257,30 @@ export default function CourseLearning() {
   const [inputValue, setInputValue] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [expandedTopics, setExpandedTopics] = useState<string[]>([]);
+
+  // Auto-initiate AI session when topic has no messages
+  useEffect(() => {
+    if (
+      activeTopicId &&
+      !messagesLoading &&
+      chatMessages.length === 0 &&
+      !isStreaming &&
+      !hasAutoInitiated.has(activeTopicId) &&
+      activeTopic &&
+      (activeTopic.status === "unlocked" || activeTopic.status === "completed")
+    ) {
+      setHasAutoInitiated((prev) => new Set(prev).add(activeTopicId));
+      
+      // Check if this is a review navigation
+      const isReview = reviewTopicId === activeTopicId;
+      if (isReview) {
+        // For reviews, send a review prompt instead
+        sendAndStream(`I'd like to review ${activeTopic.name}. Can you give me a quick recap of the key concepts and then quiz me to see what I remember?`);
+      } else {
+        initiateSession();
+      }
+    }
+  }, [activeTopicId, messagesLoading, chatMessages.length, isStreaming, hasAutoInitiated, activeTopic]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -257,49 +313,57 @@ export default function CourseLearning() {
     await sendAndStream(msg);
   };
 
+  const handleQuizAnswer = async (result: string) => {
+    if (!id || isStreaming) return;
+    await sendAndStream(result);
+  };
+
   const handleMarkComplete = async (topicId: string) => {
-    if (!course || !supabaseUser) return;
-    // Update the topics JSON in the subjects table
-    const updatedTopics = course.topics.map((t) => {
-      if (t.id === topicId) return { ...t, status: "completed" };
-      // Unlock next locked topic if the current one is being completed
-      return t;
-    });
-    // Also unlock the next locked topic
-    let unlocked = false;
-    const finalTopics = updatedTopics.map((t) => {
-      if (!unlocked && t.status === "locked") {
-        unlocked = true;
-        return { ...t, status: "unlocked" };
+    if (!course || !supabaseUser || !id) return;
+    
+    // Build the new topic_progress object
+    // First, get current user_subjects row to get existing progress
+    const { data: userSubRow } = await supabase
+      .from("user_subjects")
+      .select("topic_progress")
+      .eq("user_id", supabaseUser.id)
+      .eq("subject_id", id)
+      .single();
+
+    const currentProgress: Record<string, string> = (userSubRow?.topic_progress as any) || {};
+    const updatedProgress = { ...currentProgress, [topicId]: "completed" };
+    
+    // Find the next locked topic and unlock it
+    const topicIndex = course.topics.findIndex((t) => t.id === topicId);
+    if (topicIndex >= 0 && topicIndex < course.topics.length - 1) {
+      const nextTopic = course.topics[topicIndex + 1];
+      if (nextTopic.status === "locked" && !updatedProgress[nextTopic.id]) {
+        updatedProgress[nextTopic.id] = "unlocked";
       }
-      return t;
-    });
-
-    const { error } = await supabase
-      .from("subjects")
-      .update({ topics: finalTopics as any })
-      .eq("id", course.id);
-
-    if (error) {
-      toast.error("Failed to update topic status");
-      return;
     }
 
-    toast.success(`"${course.topics.find(t => t.id === topicId)?.name}" marked as complete!`);
-    qc.invalidateQueries({ queryKey: ["user_subjects"] });
-    qc.invalidateQueries({ queryKey: ["subjects"] });
-
-    // Move to next unlocked topic
-    const nextTopic = finalTopics.find((t) => t.status === "unlocked");
-    if (nextTopic) {
-      setActiveTopicId(nextTopic.id);
-    }
+    updateProgress.mutate(
+      { subjectId: id, topicProgress: updatedProgress },
+      {
+        onSuccess: () => {
+          toast.success(`"${course.topics.find(t => t.id === topicId)?.name}" marked as complete!`);
+          qc.invalidateQueries({ queryKey: ["user_subjects"] });
+          
+          // Move to next available topic
+          const nextUnlocked = course.topics.find((t, idx) => idx > topicIndex && (t.status === "unlocked" || updatedProgress[t.id] === "unlocked"));
+          if (nextUnlocked) {
+            setActiveTopicId(nextUnlocked.id);
+          }
+        },
+        onError: () => {
+          toast.error("Failed to update topic status");
+        },
+      }
+    );
   };
 
   const handleNewChat = async () => {
     if (!activeTopicId || !supabaseUser || !id) return;
-    // Clear chat for this topic by just switching the topic_id context
-    // We'll use a session-based approach: add a separator message
     await supabase.from("chat_messages").insert({
       user_id: supabaseUser.id,
       subject_id: id,
@@ -389,7 +453,7 @@ export default function CourseLearning() {
             {activeTopic?.name || "Select a topic"}
           </span>
           <div className="flex items-center gap-2">
-            {activeTopicId && activeTopic?.status === "unlocked" && (
+            {activeTopicId && activeTopic && (activeTopic.status === "unlocked" || activeTopic.status === "completed") && (
               <>
                 <Button
                   variant="outline"
@@ -401,16 +465,18 @@ export default function CourseLearning() {
                   <Plus className="w-3.5 h-3.5" />
                   New Chat
                 </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="rounded-xl gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white"
-                  onClick={() => handleMarkComplete(activeTopicId)}
-                  disabled={isStreaming}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Mark Complete
-                </Button>
+                {activeTopic.status === "unlocked" && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="rounded-xl gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => handleMarkComplete(activeTopicId)}
+                    disabled={isStreaming}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Mark Complete
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -421,13 +487,13 @@ export default function CourseLearning() {
           {chatMessages.length === 0 && !messagesLoading && !isStreaming && (
             <div className="text-center text-muted-foreground text-sm py-12">
               {activeTopic
-                ? `Ready to learn "${activeTopic.name}"! Say hi or ask anything to start your session.`
+                ? `Starting your session on "${activeTopic.name}"...`
                 : `Select a topic from the sidebar to start learning.`}
             </div>
           )}
           {chatMessages.map((msg, i) => (
             <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}>
-              <MessageBubble msg={msg} />
+              <MessageBubble msg={msg} onQuizAnswer={handleQuizAnswer} />
             </motion.div>
           ))}
           {isStreaming && streamingContent && <StreamingBubble content={streamingContent} />}
