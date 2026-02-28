@@ -9,7 +9,7 @@ import {
   getNodeColor,
   buildGraphData,
 } from "@/lib/buildGraphData";
-import { mockStudent, mockCourses } from "@/lib/mockData";
+import type { Subject } from "@/hooks/useSubjects";
 
 interface TooltipState {
   visible: boolean;
@@ -20,9 +20,10 @@ interface TooltipState {
 
 interface Props {
   activeSubject: string | null;
+  courses?: Subject[];
 }
 
-export function KnowledgeGraph({ activeSubject }: Props) {
+export function KnowledgeGraph({ activeSubject, courses = [] }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
@@ -41,7 +42,23 @@ export function KnowledgeGraph({ activeSubject }: Props) {
     const cx = width / 2;
     const cy = height / 2;
 
-    const { nodes: graphNodes, edges: graphEdges } = buildGraphData(mockStudent, mockCourses);
+    const mockCoursesForGraph = courses.map((c) => ({
+      id: c.id,
+      name: c.name,
+      icon: c.icon,
+      progress: 0,
+      color: c.color,
+      topics: c.topics.map((t) => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        sessions: t.sessions,
+      })),
+    }));
+    const { nodes: graphNodes, edges: graphEdges } = buildGraphData(
+      { id: "user", firstName: "You", lastName: "", email: "", grade: "", avatar: "", learningStyle: [], studyHabit: "", joinedAt: "", streak: 0 },
+      mockCoursesForGraph as any
+    );
 
     // Pin user node
     const userNode = graphNodes.find((n) => n.id === "user")!;
@@ -91,7 +108,7 @@ export function KnowledgeGraph({ activeSubject }: Props) {
     return () => {
       simulationRef.current?.stop();
     };
-  }, []);
+  }, [courses]);
 
   const resetZoom = useCallback(() => {
     if (svgRef.current && zoomRef.current) {

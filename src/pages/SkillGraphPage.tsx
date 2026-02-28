@@ -1,6 +1,6 @@
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { useCourses } from "@/hooks/useData";
+import { useUserSubjects } from "@/hooks/useSubjects";
 
 const graphNodes: Record<string, { label: string; x: number; y: number; status: "completed" | "unlocked" | "locked" }[]> = {
   math: [
@@ -27,9 +27,14 @@ const statusColors = {
 
 export default function SkillGraphPage() {
   const { id } = useParams<{ id: string }>();
-  const { getCourse } = useCourses();
-  const course = getCourse(id || "");
-  const nodes = graphNodes[id || ""] || graphNodes.math;
+  const { data: courses = [] } = useUserSubjects();
+  const course = courses.find((c) => c.id === id);
+  const nodes = graphNodes[id || ""] || (course ? course.topics.map((t, i) => ({
+    label: t.name,
+    x: 400 + Math.cos((i / Math.max(course.topics.length, 1)) * Math.PI * 2) * 200,
+    y: 265 + Math.sin((i / Math.max(course.topics.length, 1)) * Math.PI * 2) * 200,
+    status: t.status,
+  })) : graphNodes.math);
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -39,18 +44,21 @@ export default function SkillGraphPage() {
       <div className="bg-card rounded-2xl border shadow-soft p-6 overflow-x-auto">
         <svg viewBox="0 0 800 530" className="w-full max-w-3xl mx-auto">
           {/* Edges */}
-          {edges.map(([from, to], i) => (
-            <line
-              key={i}
-              x1={nodes[from].x}
-              y1={nodes[from].y}
-              x2={nodes[to].x}
-              y2={nodes[to].y}
-              stroke="hsl(220, 20%, 88%)"
-              strokeWidth={2}
-              strokeDasharray={nodes[to].status === "locked" ? "6 4" : "none"}
-            />
-          ))}
+          {nodes.length > 1 && nodes.map((_, i) => {
+            if (i === nodes.length - 1) return null;
+            return (
+              <line
+                key={i}
+                x1={nodes[i].x}
+                y1={nodes[i].y}
+                x2={nodes[i + 1].x}
+                y2={nodes[i + 1].y}
+                stroke="hsl(220, 20%, 88%)"
+                strokeWidth={2}
+                strokeDasharray={nodes[i + 1].status === "locked" ? "6 4" : "none"}
+              />
+            );
+          })}
 
           {/* Nodes */}
           {nodes.map((node, i) => {
@@ -72,7 +80,6 @@ export default function SkillGraphPage() {
           })}
         </svg>
 
-        {/* Legend */}
         <div className="flex items-center justify-center gap-6 mt-6">
           {(["completed", "unlocked", "locked"] as const).map((s) => (
             <div key={s} className="flex items-center gap-2">

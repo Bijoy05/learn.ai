@@ -5,20 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useAllSubjects } from "@/hooks/useSubjects";
 import { Sparkles, Send, Loader2 } from "lucide-react";
-
-const questions = [
-  { id: 1, text: "What grade or year are you in?", type: "input" as const },
-  { id: 2, text: "Which subjects are you studying this semester?", type: "chips" as const, options: ["Mathematics", "Biology", "English Literature", "Physics", "History", "Chemistry", "Geography", "Art"] },
-  { id: 3, text: "When you learn something new, what helps you most?", type: "cards" as const, options: ["Detailed explanations", "Real-world examples", "Visual diagrams", "Practice questions"] },
-  { id: 4, text: "How would you describe your current study habits?", type: "cards" as const, options: ["I study a little every day", "I study in long sessions before tests", "I study when I feel like it", "I am just starting to build a routine"] },
-  { id: 5, text: "What is one subject you find most challenging and why?", type: "input" as const },
-  { id: 6, text: "How do you prefer to be checked on your understanding?", type: "cards" as const, options: ["Short quizzes", "Open-ended questions", "Explain it back to me", "A mix of all"] },
-];
 
 export default function OnboardingPage() {
   const { user, completeOnboarding, supabaseUser } = useAuth();
   const navigate = useNavigate();
+  const { data: allSubjects = [] } = useAllSubjects();
   const [phase, setPhase] = useState<"celebration" | "welcome" | "chat" | "building">("celebration");
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string | string[]>>({});
@@ -28,27 +21,34 @@ export default function OnboardingPage() {
 
   const firstName = user?.firstName || "Student";
 
+  // Build questions dynamically — subjects come from DB
+  const subjectNames = allSubjects.map((s) => s.name);
+  const questions = [
+    { id: 1, text: "What grade or year are you in?", type: "input" as const, options: [] },
+    { id: 2, text: "Which subjects are you studying this semester?", type: "chips" as const, options: subjectNames },
+    { id: 3, text: "When you learn something new, what helps you most?", type: "cards" as const, options: ["Detailed explanations", "Real-world examples", "Visual diagrams", "Practice questions"] },
+    { id: 4, text: "How would you describe your current study habits?", type: "cards" as const, options: ["I study a little every day", "I study in long sessions before tests", "I study when I feel like it", "I am just starting to build a routine"] },
+    { id: 5, text: "What is one subject you find most challenging and why?", type: "input" as const, options: [] },
+    { id: 6, text: "How do you prefer to be checked on your understanding?", type: "cards" as const, options: ["Short quizzes", "Open-ended questions", "Explain it back to me", "A mix of all"] },
+  ];
+
   useEffect(() => {
     const t1 = setTimeout(() => setPhase("welcome"), 1800);
     return () => clearTimeout(t1);
   }, []);
 
-  const addAiMessage = (text: string) => {
-    setMessages((prev) => [...prev, { role: "ai", text }]);
-  };
-
-  const addStudentMessage = (text: string) => {
-    setMessages((prev) => [...prev, { role: "student", text }]);
-  };
+  const addAiMessage = (text: string) => setMessages((prev) => [...prev, { role: "ai", text }]);
+  const addStudentMessage = (text: string) => setMessages((prev) => [...prev, { role: "student", text }]);
 
   useEffect(() => {
     if (phase === "chat" && currentQ === 0 && messages.length === 0) {
       addAiMessage(questions[0].text);
     }
-  }, [phase, currentQ, messages.length]);
+  }, [phase, currentQ, messages.length, questions]);
 
   const saveAllResponses = async (allAnswers: Record<number, string | string[]>) => {
     if (!supabaseUser) return;
+    // Save onboarding responses
     const rows = questions.map((q, i) => ({
       user_id: supabaseUser.id,
       question_id: q.id,
@@ -56,6 +56,21 @@ export default function OnboardingPage() {
       answer: JSON.stringify(allAnswers[i] ?? ""),
     }));
     await supabase.from("onboarding_responses").upsert(rows, { onConflict: "user_id,question_id" });
+
+    // Save selected subjects (question index 1 = subjects)
+    const selectedSubjectNames = allAnswers[1];
+    if (Array.isArray(selectedSubjectNames)) {
+      const subjectIds = allSubjects
+        .filter((s) => selectedSubjectNames.includes(s.name))
+        .map((s) => s.id);
+      // Delete existing and insert new
+      await supabase.from("user_subjects").delete().eq("user_id", supabaseUser.id);
+      if (subjectIds.length > 0) {
+        await supabase.from("user_subjects").insert(
+          subjectIds.map((sid) => ({ user_id: supabaseUser.id, subject_id: sid }))
+        );
+      }
+    }
   };
 
   const handleAnswer = (answer: string | string[]) => {
@@ -143,7 +158,7 @@ export default function OnboardingPage() {
                   {q.type === "chips" && (
                     <div className="space-y-3">
                       <div className="flex flex-wrap gap-2">
-                        {q.options!.map((opt) => (
+                        {q.options.map((opt) => (
                           <button key={opt} onClick={() => setSelectedChips((prev) => prev.includes(opt) ? prev.filter((c) => c !== opt) : [...prev, opt])}
                             className={`px-4 py-2 rounded-xl text-sm border transition-all ${selectedChips.includes(opt) ? "bg-accent text-accent-foreground border-accent" : "bg-card text-foreground hover:bg-secondary"}`}>
                             {opt}
@@ -155,7 +170,7 @@ export default function OnboardingPage() {
                   )}
                   {q.type === "cards" && (
                     <div className="grid grid-cols-2 gap-2">
-                      {q.options!.map((opt) => (
+                      {q.options.map((opt) => (
                         <button key={opt} onClick={() => handleAnswer(opt)} className="p-4 rounded-xl border bg-card text-foreground text-sm text-left hover:bg-secondary hover:border-accent transition-all">{opt}</button>
                       ))}
                     </div>
