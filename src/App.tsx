@@ -18,6 +18,7 @@ import ReportsPage from "./pages/ReportsPage";
 import SchedulePage from "./pages/SchedulePage";
 import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
+import KnowledgeGraphPage from "./pages/KnowledgeGraphPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,7 @@ const App = () => (
               <Route path="schedule" element={<SchedulePage />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="knowledge-graph" element={<KnowledgeGraphPage />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

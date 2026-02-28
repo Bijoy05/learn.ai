@@ -2,13 +2,14 @@ import { NavLink, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   LayoutDashboard, BookOpen, GitBranch, Calendar, MessageCircle, StickyNote, BarChart3,
-  Settings, Bell, ChevronLeft, Sparkles,
+  Settings, Bell, ChevronLeft, Sparkles, Network,
 } from "lucide-react";
 import { useNotifications, useStudent } from "@/hooks/useData";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   { label: "Courses", icon: BookOpen, path: "/dashboard/courses" },
+  { label: "Knowledge Graph", icon: Network, path: "/dashboard/knowledge-graph" },
   { label: "Schedule", icon: Calendar, path: "/dashboard/schedule" },
   { label: "Chat", icon: MessageCircle, path: "/dashboard/chat" },
   { label: "Notes", icon: StickyNote, path: "/dashboard/notes" },
