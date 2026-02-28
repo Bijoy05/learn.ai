@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { LogOut, User, Bell, Palette } from "lucide-react";
+import { LogOut, User, Bell } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudent } from "@/hooks/useData";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,8 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState(true);
   const [reviewReminders, setReviewReminders] = useState(true);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/");
   };
 
@@ -26,11 +26,7 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-bold text-foreground">Settings</h1>
 
       {/* Profile */}
-      <motion.div
-        className="bg-card rounded-2xl border shadow-soft p-6 space-y-4"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
+      <motion.div className="bg-card rounded-2xl border shadow-soft p-6 space-y-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-3 mb-2">
           <User className="w-5 h-5 text-muted-foreground" />
           <h2 className="font-semibold text-foreground">Profile</h2>
@@ -57,12 +53,7 @@ export default function SettingsPage() {
       </motion.div>
 
       {/* Notifications */}
-      <motion.div
-        className="bg-card rounded-2xl border shadow-soft p-6 space-y-4"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-      >
+      <motion.div className="bg-card rounded-2xl border shadow-soft p-6 space-y-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <div className="flex items-center gap-3 mb-2">
           <Bell className="w-5 h-5 text-muted-foreground" />
           <h2 className="font-semibold text-foreground">Notifications</h2>
@@ -84,12 +75,7 @@ export default function SettingsPage() {
       </motion.div>
 
       {/* Logout */}
-      <motion.div
-        className="bg-card rounded-2xl border shadow-soft p-6"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-      >
+      <motion.div className="bg-card rounded-2xl border shadow-soft p-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
         <Button variant="outline" className="rounded-xl gap-2 text-destructive hover:text-destructive" onClick={handleLogout}>
           <LogOut className="w-4 h-4" />
           Log out

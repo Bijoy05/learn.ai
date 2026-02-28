@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 export default function AuthPage() {
   const [searchParams] = useSearchParams();
@@ -15,7 +16,8 @@ export default function AuthPage() {
   const [ssoInstitution, setSsoInstitution] = useState("");
   const [ssoStep, setSsoStep] = useState<"input" | "branded">("input");
   const navigate = useNavigate();
-  const { login, signup, isLoading } = useAuth();
+  const { login, signup, isLoading, isAuthenticated, needsOnboarding } = useAuth();
+  const { toast } = useToast();
 
   const [form, setForm] = useState({
     firstName: "",
@@ -25,21 +27,34 @@ export default function AuthPage() {
     role: "student",
   });
 
+  // Redirect if already authenticated
+  if (isAuthenticated) {
+    if (needsOnboarding) {
+      navigate("/onboarding", { replace: true });
+    } else {
+      navigate("/dashboard", { replace: true });
+    }
+    return null;
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    await login(form.email, form.password);
-    navigate("/dashboard");
+    try {
+      await login(form.email, form.password);
+      navigate("/dashboard");
+    } catch (err: any) {
+      toast({ title: "Login failed", description: err.message, variant: "destructive" });
+    }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    await signup(form);
-    navigate("/onboarding");
-  };
-
-  const handleGoogleLogin = async () => {
-    await login("kate@school.edu", "");
-    navigate("/dashboard");
+    try {
+      await signup(form);
+      toast({ title: "Check your email", description: "We sent you a confirmation link. Please verify your email to continue." });
+    } catch (err: any) {
+      toast({ title: "Signup failed", description: err.message, variant: "destructive" });
+    }
   };
 
   const handleSsoContinue = () => {
@@ -102,9 +117,6 @@ export default function AuthPage() {
                 <Button type="submit" className="w-full rounded-xl" disabled={isLoading}>
                   {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Log in"}
                 </Button>
-                <Button type="button" variant="outline" className="w-full rounded-xl" onClick={handleGoogleLogin} disabled={isLoading}>
-                  Continue with Google
-                </Button>
                 <p className="text-center text-sm text-muted-foreground">
                   <button type="button" onClick={() => { setTab("sso"); setSsoStep("input"); }} className="text-accent hover:underline">
                     Sign in with SSO
@@ -131,7 +143,7 @@ export default function AuthPage() {
                 </div>
                 <div>
                   <Label>Password</Label>
-                  <Input type="password" className="mt-1 rounded-xl" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+                  <Input type="password" className="mt-1 rounded-xl" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={6} />
                 </div>
                 <div>
                   <Label>I am a</Label>
@@ -152,9 +164,6 @@ export default function AuthPage() {
                 </div>
                 <Button type="submit" className="w-full rounded-xl" disabled={isLoading}>
                   {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create account"}
-                </Button>
-                <Button type="button" variant="outline" className="w-full rounded-xl" onClick={handleGoogleLogin}>
-                  Continue with Google
                 </Button>
               </motion.form>
             )}
