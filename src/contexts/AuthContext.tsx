@@ -1,10 +1,21 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import type { User, Session } from "@supabase/supabase-js";
+
+interface Profile {
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
+  onboardingCompleted: boolean;
+}
 
 interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
-  user: { firstName: string; lastName: string; email: string; role: string } | null;
+  user: Profile | null;
   needsOnboarding: boolean;
+  supabaseUser: User | null;
 }
 
 interface AuthContextType extends AuthState {
@@ -16,42 +27,116 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+async function fetchProfile(userId: string): Promise<Profile | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+  if (error || !data) return null;
+  return {
+    firstName: data.first_name,
+    lastName: data.last_name,
+    email: "",
+    role: data.role,
+    onboardingCompleted: data.onboarding_completed,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     isAuthenticated: false,
-    isLoading: false,
+    isLoading: true,
     user: null,
     needsOnboarding: false,
+    supabaseUser: null,
   });
 
-  const login = async (email: string, _password: string) => {
-    setState((s) => ({ ...s, isLoading: true }));
-    await new Promise((r) => setTimeout(r, 1500));
-    setState({
-      isAuthenticated: true,
-      isLoading: false,
-      user: { firstName: "Kate", lastName: "Malone", email, role: "student" },
-      needsOnboarding: false,
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (session?.user) {
+          // Use setTimeout to avoid Supabase auth deadlock
+          setTimeout(async () => {
+            const profile = await fetchProfile(session.user.id);
+            setState({
+              isAuthenticated: true,
+              isLoading: false,
+              user: profile
+                ? { ...profile, email: session.user.email ?? "" }
+                : { firstName: "", lastName: "", email: session.user.email ?? "", role: "student", onboardingCompleted: false },
+              needsOnboarding: profile ? !profile.onboardingCompleted : true,
+              supabaseUser: session.user,
+            });
+          }, 0);
+        } else {
+          setState({ isAuthenticated: false, isLoading: false, user: null, needsOnboarding: false, supabaseUser: null });
+        }
+      }
+    );
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const profile = await fetchProfile(session.user.id);
+        setState({
+          isAuthenticated: true,
+          isLoading: false,
+          user: profile
+            ? { ...profile, email: session.user.email ?? "" }
+            : { firstName: "", lastName: "", email: session.user.email ?? "", role: "student", onboardingCompleted: false },
+          needsOnboarding: profile ? !profile.onboardingCompleted : true,
+          supabaseUser: session.user,
+        });
+      } else {
+        setState((s) => ({ ...s, isLoading: false }));
+      }
     });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    setState((s) => ({ ...s, isLoading: true }));
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setState((s) => ({ ...s, isLoading: false }));
+      throw error;
+    }
   };
 
   const signup = async (data: { firstName: string; lastName: string; email: string; password: string; role: string }) => {
     setState((s) => ({ ...s, isLoading: true }));
-    await new Promise((r) => setTimeout(r, 1500));
-    setState({
-      isAuthenticated: true,
-      isLoading: false,
-      user: { firstName: data.firstName, lastName: data.lastName, email: data.email, role: data.role },
-      needsOnboarding: true,
+    const { error } = await supabase.auth.signUp({
+      email: data.email,
+      password: data.password,
+      options: {
+        emailRedirectTo: window.location.origin,
+        data: {
+          first_name: data.firstName,
+          last_name: data.lastName,
+          role: data.role,
+        },
+      },
     });
+    if (error) {
+      setState((s) => ({ ...s, isLoading: false }));
+      throw error;
+    }
   };
 
-  const logout = () => {
-    setState({ isAuthenticated: false, isLoading: false, user: null, needsOnboarding: false });
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setState({ isAuthenticated: false, isLoading: false, user: null, needsOnboarding: false, supabaseUser: null });
   };
 
-  const completeOnboarding = () => {
-    setState((s) => ({ ...s, needsOnboarding: false }));
+  const completeOnboarding = async () => {
+    if (state.supabaseUser) {
+      await supabase
+        .from("profiles")
+        .update({ onboarding_completed: true })
+        .eq("user_id", state.supabaseUser.id);
+    }
+    setState((s) => ({ ...s, needsOnboarding: false, user: s.user ? { ...s.user, onboardingCompleted: true } : s.user }));
   };
 
   return (
