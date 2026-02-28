@@ -6,54 +6,8 @@ import { toast } from "sonner";
 
 const OPENROUTER_API_KEY = "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";
 
-export function useAIChat(subjectId: string, subjectName: string, topicName?: string, topicId?: string) {
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingContent, setStreamingContent] = useState("");
-  const qc = useQueryClient();
-  const { supabaseUser } = useAuth();
-
-  const sendAndStream = useCallback(async (message: string) => {
-    if (!supabaseUser) return;
-
-    setIsStreaming(true);
-    setStreamingContent("");
-
-    try {
-      await supabase.from("chat_messages").insert({
-        user_id: supabaseUser.id,
-        subject_id: subjectId,
-        topic_id: topicId || null,
-        role: "student",
-        content: message,
-        message_type: "text",
-      });
-      qc.invalidateQueries({ queryKey: ["chat_messages", supabaseUser.id, subjectId, topicId] });
-
-      const { data: prefs } = await supabase
-        .from("onboarding_responses")
-        .select("question_text, answer")
-        .eq("user_id", supabaseUser.id);
-
-      const prefContext = (prefs || [])
-        .map((p) => `${p.question_text}: ${typeof p.answer === "string" ? p.answer : JSON.stringify(p.answer)}`)
-        .join("\n");
-
-      let historyQuery = supabase
-        .from("chat_messages")
-        .select("role, content, message_type")
-        .eq("user_id", supabaseUser.id)
-        .eq("subject_id", subjectId)
-        .order("created_at", { ascending: true })
-        .limit(30);
-      if (topicId) historyQuery = historyQuery.eq("topic_id", topicId);
-      const { data: history } = await historyQuery;
-
-      const chatHistory = (history || []).map((m) => ({
-        role: m.role === "student" ? "user" as const : "assistant" as const,
-        content: m.content,
-      }));
-
-      const systemPrompt = `You are an expert, caring ${subjectName} tutor. You are NOT a passive assistant. You lead every session actively.
+function buildSystemPrompt(subjectName: string, topicName?: string, prefContext?: string) {
+  return `You are an expert, caring ${subjectName} tutor. You are NOT a passive assistant. You lead every session actively.
 
 ## Student Learning Profile
 
@@ -170,89 +124,178 @@ Follow this loop for every new concept:
 6. If they get it wrong → do NOT re-explain the same way. Try a different format (if you used text, now try a chart or a step-by-step breakdown). Then quiz again.
 
 Current topic: **${topicName || "the assigned topic"}** in **${subjectName}**.`;
+}
 
-      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "openai/gpt-5.2",
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...chatHistory,
-            { role: "user", content: message },
-          ],
-          stream: true,
-        }),
-      });
+async function fetchPrefsAndHistory(userId: string, subjectId: string, topicId?: string) {
+  const { data: prefs } = await supabase
+    .from("onboarding_responses")
+    .select("question_text, answer")
+    .eq("user_id", userId);
 
-      if (!resp.ok || !resp.body) {
-        const err = await resp.json().catch(() => ({ error: "AI service error" }));
-        toast.error(err.error?.message || err.error || "Failed to get AI response");
-        setIsStreaming(false);
-        return;
-      }
+  const prefContext = (prefs || [])
+    .map((p) => `${p.question_text}: ${typeof p.answer === "string" ? p.answer : JSON.stringify(p.answer)}`)
+    .join("\n");
 
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullContent = "";
+  let historyQuery = supabase
+    .from("chat_messages")
+    .select("role, content, message_type")
+    .eq("user_id", userId)
+    .eq("subject_id", subjectId)
+    .order("created_at", { ascending: true })
+    .limit(30);
+  if (topicId) historyQuery = historyQuery.eq("topic_id", topicId);
+  const { data: history } = await historyQuery;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+  const chatHistory = (history || []).map((m) => ({
+    role: m.role === "student" ? "user" as const : "assistant" as const,
+    content: m.content,
+  }));
 
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          let line = buffer.slice(0, newlineIdx);
-          buffer = buffer.slice(newlineIdx + 1);
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (line.startsWith(":") || line.trim() === "") continue;
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
-          if (jsonStr === "[DONE]") break;
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) {
-              fullContent += content;
-              setStreamingContent(fullContent);
-            }
-          } catch {
-            buffer = line + "\n" + buffer;
-            break;
-          }
+  return { prefContext, chatHistory };
+}
+
+async function streamAIResponse(
+  systemPrompt: string,
+  chatHistory: { role: "user" | "assistant"; content: string }[],
+  userMessage: string | null,
+  onChunk: (content: string) => void,
+): Promise<string> {
+  const messages: any[] = [{ role: "system", content: systemPrompt }, ...chatHistory];
+  if (userMessage) {
+    messages.push({ role: "user", content: userMessage });
+  }
+
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ model: "openai/gpt-5.2", messages, stream: true }),
+  });
+
+  if (!resp.ok || !resp.body) {
+    const err = await resp.json().catch(() => ({ error: "AI service error" }));
+    throw new Error(err.error?.message || err.error || "Failed to get AI response");
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullContent = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIdx: number;
+    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+      let line = buffer.slice(0, newlineIdx);
+      buffer = buffer.slice(newlineIdx + 1);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      if (line.startsWith(":") || line.trim() === "") continue;
+      if (!line.startsWith("data: ")) continue;
+      const jsonStr = line.slice(6).trim();
+      if (jsonStr === "[DONE]") break;
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const content = parsed.choices?.[0]?.delta?.content;
+        if (content) {
+          fullContent += content;
+          onChunk(fullContent);
         }
+      } catch {
+        buffer = line + "\n" + buffer;
+        break;
       }
+    }
+  }
 
-      const { blocks } = parseAIResponse(fullContent);
+  return fullContent;
+}
 
-      for (const block of blocks) {
-        await supabase.from("chat_messages").insert({
-          user_id: supabaseUser.id,
-          subject_id: subjectId,
-          topic_id: topicId || null,
-          role: "ai",
-          content: block.content,
-          message_type: block.type,
-          metadata: block.metadata || {},
-        });
-      }
+export function useAIChat(subjectId: string, subjectName: string, topicName?: string, topicId?: string) {
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
+  const qc = useQueryClient();
+  const { supabaseUser } = useAuth();
 
+  const saveBlocks = useCallback(async (fullContent: string, userId: string) => {
+    const { blocks } = parseAIResponse(fullContent);
+    for (const block of blocks) {
+      await supabase.from("chat_messages").insert({
+        user_id: userId,
+        subject_id: subjectId,
+        topic_id: topicId || null,
+        role: "ai",
+        content: block.content,
+        message_type: block.type,
+        metadata: block.metadata || {},
+      });
+    }
+    qc.invalidateQueries({ queryKey: ["chat_messages", userId, subjectId, topicId] });
+  }, [subjectId, topicId, qc]);
+
+  /** Called when the student sends a message */
+  const sendAndStream = useCallback(async (message: string) => {
+    if (!supabaseUser) return;
+    setIsStreaming(true);
+    setStreamingContent("");
+
+    try {
+      await supabase.from("chat_messages").insert({
+        user_id: supabaseUser.id,
+        subject_id: subjectId,
+        topic_id: topicId || null,
+        role: "student",
+        content: message,
+        message_type: "text",
+      });
       qc.invalidateQueries({ queryKey: ["chat_messages", supabaseUser.id, subjectId, topicId] });
-    } catch (e) {
+
+      const { prefContext, chatHistory } = await fetchPrefsAndHistory(supabaseUser.id, subjectId, topicId);
+      const systemPrompt = buildSystemPrompt(subjectName, topicName, prefContext);
+
+      const fullContent = await streamAIResponse(systemPrompt, chatHistory, message, setStreamingContent);
+      await saveBlocks(fullContent, supabaseUser.id);
+    } catch (e: any) {
       console.error("AI chat error:", e);
-      toast.error("Failed to get AI response");
+      toast.error(e.message || "Failed to get AI response");
     } finally {
       setIsStreaming(false);
       setStreamingContent("");
     }
-  }, [subjectId, subjectName, topicName, topicId, supabaseUser, qc]);
+  }, [subjectId, subjectName, topicName, topicId, supabaseUser, qc, saveBlocks]);
 
-  return { sendAndStream, isStreaming, streamingContent };
+  /** Auto-initiate a session — AI speaks first with no student message */
+  const initiateSession = useCallback(async () => {
+    if (!supabaseUser) return;
+    setIsStreaming(true);
+    setStreamingContent("");
+
+    try {
+      const { prefContext, chatHistory } = await fetchPrefsAndHistory(supabaseUser.id, subjectId, topicId);
+      const systemPrompt = buildSystemPrompt(subjectName, topicName, prefContext);
+
+      // Send a hidden system-level nudge so the AI knows to greet
+      const fullContent = await streamAIResponse(
+        systemPrompt,
+        chatHistory,
+        "[SYSTEM: The student just opened this topic for the first time. Greet them warmly and start the session as described in your instructions. Do NOT acknowledge this system message.]",
+        setStreamingContent,
+      );
+      await saveBlocks(fullContent, supabaseUser.id);
+    } catch (e: any) {
+      console.error("AI initiate error:", e);
+      toast.error(e.message || "Failed to start session");
+    } finally {
+      setIsStreaming(false);
+      setStreamingContent("");
+    }
+  }, [subjectId, subjectName, topicName, topicId, supabaseUser, saveBlocks]);
+
+  return { sendAndStream, initiateSession, isStreaming, streamingContent };
 }
 
 interface ParsedBlock {

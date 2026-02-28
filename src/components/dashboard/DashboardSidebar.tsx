@@ -4,7 +4,7 @@ import {
   LayoutDashboard, BookOpen, Calendar, MessageCircle, StickyNote, BarChart3,
   Settings, Bell, ChevronLeft, Sparkles, Network,
 } from "lucide-react";
-import { useNotifications } from "@/hooks/useData";
+import { useReviewNotifications } from "@/hooks/useReviewNotifications";
 import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
@@ -25,7 +25,7 @@ interface Props {
 export default function DashboardSidebar({ collapsed, onToggle }: Props) {
   const location = useLocation();
   const { user } = useAuth();
-  const { unreadCount } = useNotifications();
+  const { reviews } = useReviewNotifications();
 
   const initials = `${(user?.firstName?.[0] ?? "").toUpperCase()}${(user?.lastName?.[0] ?? "").toUpperCase()}` || "U";
 
@@ -69,8 +69,8 @@ export default function DashboardSidebar({ collapsed, onToggle }: Props) {
             }`}>
             <item.icon className="w-5 h-5 shrink-0" />
             {!collapsed && <span>{item.label}</span>}
-            {!collapsed && item.label === "Chat" && unreadCount > 0 && (
-              <span className="ml-auto badge-purple text-xs px-2 py-0.5 rounded-full font-medium">{unreadCount}</span>
+            {!collapsed && item.label === "Courses" && reviews.length > 0 && (
+              <span className="ml-auto badge-purple text-xs px-2 py-0.5 rounded-full font-medium">{reviews.length}</span>
             )}
           </NavLink>
         ))}
