@@ -3,7 +3,8 @@ import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Send, ChevronRight, GitBranch, Circle, Loader2 } from "lucide-react";
 import { useUserSubjects } from "@/hooks/useSubjects";
-import { useChatMessages, useSendMessage, type ChatMessage } from "@/hooks/useChatMessages";
+import { useChatMessages, type ChatMessage } from "@/hooks/useChatMessages";
+import { useAIChat } from "@/hooks/useAIChat";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,19 +30,20 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   }
 
   if (msg.message_type === "chart" && msg.metadata?.chartData) {
+    const chartData = msg.metadata.chartData;
     return (
       <div className="space-y-2 max-w-lg">
         <div className="bg-card border rounded-2xl p-4">
-          <p className="text-sm text-foreground mb-3">{msg.content}</p>
+          <p className="text-sm text-foreground mb-3 font-medium">{chartData.title || msg.content}</p>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={msg.metadata.chartData.data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 20% 92%)" />
+            <LineChart data={chartData.data}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis dataKey="x" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} />
               <Tooltip />
               <Legend />
-              {Object.keys(msg.metadata.chartData.data[0] || {}).filter(k => k !== 'x').map((key, idx) => (
-                <Line key={key} type="monotone" dataKey={key} stroke={["hsl(252 90% 77%)", "hsl(122 83% 80%)", "hsl(0 0% 13.3%)"][idx % 3]} strokeWidth={2} dot={false} />
+              {Object.keys(chartData.data[0] || {}).filter(k => k !== 'x').map((key, idx) => (
+                <Line key={key} type="monotone" dataKey={key} stroke={["hsl(var(--primary))", "hsl(var(--accent))", "hsl(var(--destructive))"][idx % 3]} strokeWidth={2} dot={false} />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -59,7 +61,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
       <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0 mt-1">
         <span className="text-xs text-accent-foreground font-bold">AI</span>
       </div>
-      <div className="bg-card border rounded-2xl rounded-bl-md px-5 py-3 text-sm text-foreground">
+      <div className="bg-card border rounded-2xl rounded-bl-md px-5 py-3 text-sm text-foreground whitespace-pre-wrap">
         {msg.content.split("\n").map((line, i) => {
           if (line.startsWith("**") && line.endsWith("**")) return <p key={i} className="font-semibold">{line.replace(/\*\*/g, "")}</p>;
           if (line.startsWith("- **")) {
@@ -68,6 +70,19 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           }
           return <p key={i} className={line === "" ? "h-2" : ""}>{line}</p>;
         })}
+      </div>
+    </div>
+  );
+}
+
+function StreamingBubble({ content }: { content: string }) {
+  return (
+    <div className="flex gap-3 max-w-lg">
+      <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0 mt-1 animate-pulse">
+        <span className="text-xs text-accent-foreground font-bold">AI</span>
+      </div>
+      <div className="bg-card border rounded-2xl rounded-bl-md px-5 py-3 text-sm text-foreground whitespace-pre-wrap">
+        {content}<span className="animate-pulse">▊</span>
       </div>
     </div>
   );
@@ -85,7 +100,7 @@ function QuizCard({ quiz }: { quiz: { question: string; options: string[]; corre
         {quiz.options.map((opt, i) => (
           <button key={i} onClick={() => !submitted && setSelected(i)}
             className={`w-full text-left px-4 py-3 rounded-xl text-sm border transition-all ${
-              submitted && i === quiz.correct ? "bg-success/20 border-success text-foreground" :
+              submitted && i === quiz.correct ? "bg-green-500/20 border-green-500 text-foreground" :
               submitted && i === selected && i !== quiz.correct ? "bg-destructive/10 border-destructive text-foreground" :
               selected === i ? "border-accent bg-accent/10 text-foreground" :
               "bg-background text-foreground hover:bg-secondary"
@@ -94,7 +109,7 @@ function QuizCard({ quiz }: { quiz: { question: string; options: string[]; corre
       </div>
       {selected !== null && !submitted && <Button size="sm" className="mt-3 rounded-xl" onClick={() => setSubmitted(true)}>Check answer</Button>}
       {submitted && (
-        <motion.p className={`mt-3 text-sm ${selected === quiz.correct ? "text-success-foreground" : "text-destructive"}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <motion.p className={`mt-3 text-sm ${selected === quiz.correct ? "text-green-600" : "text-destructive"}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           {selected === quiz.correct ? "✅ Correct! " : "❌ Not quite. "}{quiz.explanation}
         </motion.p>
       )}
@@ -107,16 +122,19 @@ export default function CourseLearning() {
   const { data: courses = [] } = useUserSubjects();
   const course = courses.find((c) => c.id === id);
   const { data: chatMessages = [], isLoading: messagesLoading } = useChatMessages(id || "");
-  const sendMessage = useSendMessage();
+  const { sendAndStream, isStreaming, streamingContent } = useAIChat(
+    id || "",
+    course?.name || "",
+    course?.topics.find(t => t.status === "unlocked")?.name
+  );
   const [inputValue, setInputValue] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [expandedTopics, setExpandedTopics] = useState<string[]>([]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+  }, [chatMessages, streamingContent]);
 
-  // Expand first unlocked topic by default
   useEffect(() => {
     if (course && expandedTopics.length === 0) {
       const firstUnlocked = course.topics.find((t) => t.status === "unlocked");
@@ -131,10 +149,10 @@ export default function CourseLearning() {
   };
 
   const handleSend = async () => {
-    if (!inputValue.trim() || !id) return;
+    if (!inputValue.trim() || !id || isStreaming) return;
     const msg = inputValue.trim();
     setInputValue("");
-    await sendMessage.mutateAsync({ subject_id: id, role: "student", content: msg });
+    await sendAndStream(msg);
   };
 
   const completed = course.topics.filter((t) => t.status === "completed").length;
@@ -161,7 +179,7 @@ export default function CourseLearning() {
                 }`}
               >
                 <Circle className={`w-3 h-3 shrink-0 ${
-                  topic.status === "completed" ? "text-success fill-success" :
+                  topic.status === "completed" ? "text-green-500 fill-green-500" :
                   topic.status === "unlocked" ? "text-accent fill-accent" : "text-muted"
                 }`} />
                 <span className="truncate">{topic.name}</span>
@@ -171,7 +189,7 @@ export default function CourseLearning() {
                   {topic.sessions.map((session) => (
                     <div key={session.id} className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
                       <div className={`w-1.5 h-1.5 rounded-full ${
-                        session.status === "complete" ? "bg-success" : session.status === "review" ? "bg-accent" : "bg-muted"
+                        session.status === "complete" ? "bg-green-500" : session.status === "review" ? "bg-accent" : "bg-muted"
                       }`} />
                       <span className="truncate">{session.topicName}</span>
                     </div>
@@ -202,9 +220,9 @@ export default function CourseLearning() {
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messagesLoading && <div className="flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
-          {chatMessages.length === 0 && !messagesLoading && (
+          {chatMessages.length === 0 && !messagesLoading && !isStreaming && (
             <div className="text-center text-muted-foreground text-sm py-12">
-              Start a conversation about {course.name}!
+              Start a conversation about {course.name}! Ask anything and I'll teach you step by step.
             </div>
           )}
           {chatMessages.map((msg, i) => (
@@ -212,6 +230,17 @@ export default function CourseLearning() {
               <MessageBubble msg={msg} />
             </motion.div>
           ))}
+          {isStreaming && streamingContent && <StreamingBubble content={streamingContent} />}
+          {isStreaming && !streamingContent && (
+            <div className="flex gap-3 max-w-lg">
+              <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0 animate-pulse">
+                <span className="text-xs text-accent-foreground font-bold">AI</span>
+              </div>
+              <div className="bg-card border rounded-2xl px-5 py-3 text-sm text-muted-foreground">
+                Thinking...
+              </div>
+            </div>
+          )}
           <div ref={chatEndRef} />
         </div>
 
@@ -222,10 +251,11 @@ export default function CourseLearning() {
               className="rounded-xl flex-1"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+              disabled={isStreaming}
             />
-            <Button size="icon" className="rounded-xl shrink-0" onClick={handleSend} disabled={sendMessage.isPending}>
-              <Send className="w-4 h-4" />
+            <Button size="icon" className="rounded-xl shrink-0" onClick={handleSend} disabled={isStreaming}>
+              {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </div>
           <p className="text-[10px] text-muted-foreground mt-2 text-center">AI may make mistakes — always verify important facts.</p>
