@@ -28,7 +28,7 @@ export const EXTRACURRICULAR_COURSES: ExtracurricularCourse[] = [
   },
   {
     id: "ec-online-safety",
-    name: "Online Safety & Digital Citizenship",
+    name: "Online Safety & Security",
     description: "Stay safe online and understand your rights and responsibilities in digital spaces.",
     icon: "🛡️",
     color: "#a4f5a6",
@@ -58,7 +58,7 @@ export const EXTRACURRICULAR_COURSES: ExtracurricularCourse[] = [
   },
   {
     id: "ec-critical-thinking",
-    name: "Critical Thinking & Media Literacy",
+    name: "Critical Thinking",
     description: "Think clearly, question what you read, and make better decisions with information.",
     icon: "🧠",
     color: "#f4a4a4",
