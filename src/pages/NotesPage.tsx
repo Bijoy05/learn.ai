@@ -1,14 +1,30 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, X } from "lucide-react";
-import { useNotes } from "@/hooks/useData";
+import { Plus, X, Trash2, Loader2 } from "lucide-react";
+import { useNotes, useCreateNote, useDeleteNote } from "@/hooks/useNotes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 export default function NotesPage() {
-  const { notes } = useNotes();
+  const { data: notes = [], isLoading } = useNotes();
+  const createNote = useCreateNote();
+  const deleteNote = useDeleteNote();
   const [showModal, setShowModal] = useState(false);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [color, setColor] = useState<"purple" | "green">("green");
+
+  const handleSave = async () => {
+    if (!title.trim()) return;
+    await createNote.mutateAsync({ title, content, color });
+    setTitle("");
+    setContent("");
+    setColor("green");
+    setShowModal(false);
+  };
+
+  if (isLoading) return <div className="p-6 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -18,24 +34,34 @@ export default function NotesPage() {
           <Plus className="w-4 h-4" /> New note
         </Button>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        {notes.map((note, i) => (
-          <motion.div
-            key={note.id}
-            className={`rounded-2xl p-5 ${note.color === "purple" ? "card-purple" : "card-green"}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.08 }}
-          >
-            <div className="flex items-start justify-between mb-2">
-              <h3 className="font-semibold text-sm">{note.title}</h3>
-              <button className="opacity-60 hover:opacity-100 text-sm">•••</button>
-            </div>
-            <p className="text-xs leading-relaxed opacity-80 line-clamp-5">{note.content}</p>
-            <p className="text-xs opacity-60 mt-3">{note.date}</p>
-          </motion.div>
-        ))}
-      </div>
+
+      {notes.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-12">No notes yet. Create your first note!</p>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          {notes.map((note, i) => (
+            <motion.div
+              key={note.id}
+              className={`rounded-2xl p-5 relative group ${note.color === "purple" ? "card-purple" : "card-green"}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.08 }}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="font-semibold text-sm">{note.title}</h3>
+                <button
+                  onClick={() => deleteNote.mutate(note.id)}
+                  className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity text-destructive"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs leading-relaxed opacity-80 line-clamp-5">{note.content}</p>
+              <p className="text-xs opacity-60 mt-3">{new Date(note.created_at).toLocaleDateString()}</p>
+            </motion.div>
+          ))}
+        </div>
+      )}
 
       {/* New Note Modal */}
       {showModal && (
@@ -51,13 +77,15 @@ export default function NotesPage() {
               <button onClick={() => setShowModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-3">
-              <Input placeholder="Note title" className="rounded-xl" />
-              <Textarea placeholder="Write your note..." className="rounded-xl min-h-[120px]" />
+              <Input placeholder="Note title" className="rounded-xl" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Textarea placeholder="Write your note..." className="rounded-xl min-h-[120px]" value={content} onChange={(e) => setContent(e.target.value)} />
               <div className="flex gap-2">
-                <button className="w-8 h-8 rounded-lg card-green" />
-                <button className="w-8 h-8 rounded-lg card-purple" />
+                <button className={`w-8 h-8 rounded-lg card-green ${color === "green" ? "ring-2 ring-accent" : ""}`} onClick={() => setColor("green")} />
+                <button className={`w-8 h-8 rounded-lg card-purple ${color === "purple" ? "ring-2 ring-accent" : ""}`} onClick={() => setColor("purple")} />
               </div>
-              <Button className="w-full rounded-xl">Save note</Button>
+              <Button className="w-full rounded-xl" onClick={handleSave} disabled={createNote.isPending}>
+                {createNote.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save note"}
+              </Button>
             </div>
           </motion.div>
         </div>
