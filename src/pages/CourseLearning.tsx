@@ -1,14 +1,18 @@
 import { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Send, ChevronRight, GitBranch, Circle, Loader2 } from "lucide-react";
+import { Send, ChevronRight, GitBranch, Circle, Loader2, CheckCircle2, Plus, MessageSquare } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useUserSubjects } from "@/hooks/useSubjects";
 import { useChatMessages, type ChatMessage } from "@/hooks/useChatMessages";
 import { useAIChat } from "@/hooks/useAIChat";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   PieChart, Pie, Cell, BarChart, Bar,
@@ -59,7 +63,6 @@ function RenderChart({ chartData }: { chartData: any }) {
     );
   }
 
-  // Default: line chart
   const keys = Object.keys(data[0] || {}).filter(k => k !== "x");
   return (
     <div className="bg-card border rounded-2xl p-4 max-w-lg">
@@ -195,12 +198,29 @@ function QuizCard({ quiz }: { quiz: { question: string; options: string[]; corre
 export default function CourseLearning() {
   const { id } = useParams<{ id: string }>();
   const { data: courses = [] } = useUserSubjects();
+  const { supabaseUser } = useAuth();
+  const qc = useQueryClient();
   const course = courses.find((c) => c.id === id);
-  const { data: chatMessages = [], isLoading: messagesLoading } = useChatMessages(id || "");
+
+  // Active topic selection
+  const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
+
+  // Set initial active topic to first unlocked
+  useEffect(() => {
+    if (course && !activeTopicId) {
+      const firstUnlocked = course.topics.find((t) => t.status === "unlocked");
+      if (firstUnlocked) setActiveTopicId(firstUnlocked.id);
+    }
+  }, [course]);
+
+  const activeTopic = course?.topics.find((t) => t.id === activeTopicId);
+
+  const { data: chatMessages = [], isLoading: messagesLoading } = useChatMessages(id || "", activeTopicId || undefined);
   const { sendAndStream, isStreaming, streamingContent } = useAIChat(
     id || "",
     course?.name || "",
-    course?.topics.find(t => t.status === "unlocked")?.name
+    activeTopic?.name,
+    activeTopicId || undefined,
   );
   const [inputValue, setInputValue] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -223,11 +243,73 @@ export default function CourseLearning() {
     setExpandedTopics((prev) => prev.includes(topicId) ? prev.filter((t) => t !== topicId) : [...prev, topicId]);
   };
 
+  const selectTopic = (topicId: string) => {
+    setActiveTopicId(topicId);
+    if (!expandedTopics.includes(topicId)) {
+      setExpandedTopics((prev) => [...prev, topicId]);
+    }
+  };
+
   const handleSend = async () => {
     if (!inputValue.trim() || !id || isStreaming) return;
     const msg = inputValue.trim();
     setInputValue("");
     await sendAndStream(msg);
+  };
+
+  const handleMarkComplete = async (topicId: string) => {
+    if (!course || !supabaseUser) return;
+    // Update the topics JSON in the subjects table
+    const updatedTopics = course.topics.map((t) => {
+      if (t.id === topicId) return { ...t, status: "completed" };
+      // Unlock next locked topic if the current one is being completed
+      return t;
+    });
+    // Also unlock the next locked topic
+    let unlocked = false;
+    const finalTopics = updatedTopics.map((t) => {
+      if (!unlocked && t.status === "locked") {
+        unlocked = true;
+        return { ...t, status: "unlocked" };
+      }
+      return t;
+    });
+
+    const { error } = await supabase
+      .from("subjects")
+      .update({ topics: finalTopics as any })
+      .eq("id", course.id);
+
+    if (error) {
+      toast.error("Failed to update topic status");
+      return;
+    }
+
+    toast.success(`"${course.topics.find(t => t.id === topicId)?.name}" marked as complete!`);
+    qc.invalidateQueries({ queryKey: ["user_subjects"] });
+    qc.invalidateQueries({ queryKey: ["subjects"] });
+
+    // Move to next unlocked topic
+    const nextTopic = finalTopics.find((t) => t.status === "unlocked");
+    if (nextTopic) {
+      setActiveTopicId(nextTopic.id);
+    }
+  };
+
+  const handleNewChat = async () => {
+    if (!activeTopicId || !supabaseUser || !id) return;
+    // Clear chat for this topic by just switching the topic_id context
+    // We'll use a session-based approach: add a separator message
+    await supabase.from("chat_messages").insert({
+      user_id: supabaseUser.id,
+      subject_id: id,
+      topic_id: activeTopicId,
+      role: "ai",
+      content: "---\n\n**New session started.** Let's pick up where we left off or tackle something new! 🚀",
+      message_type: "text",
+    });
+    qc.invalidateQueries({ queryKey: ["chat_messages", supabaseUser.id, id, activeTopicId] });
+    toast.success("New chat session started");
   };
 
   const completed = course.topics.filter((t) => t.status === "completed").length;
@@ -245,34 +327,46 @@ export default function CourseLearning() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto py-2">
-          {course.topics.map((topic) => (
-            <div key={topic.id}>
-              <button
-                onClick={() => topic.status !== "locked" && toggleTopic(topic.id)}
-                className={`w-full flex items-center gap-2 px-5 py-2.5 text-sm text-left transition-colors ${
-                  topic.status === "locked" ? "text-muted-foreground/50 cursor-not-allowed" : "text-foreground hover:bg-secondary"
-                }`}
-              >
-                <Circle className={`w-3 h-3 shrink-0 ${
-                  topic.status === "completed" ? "text-green-500 fill-green-500" :
-                  topic.status === "unlocked" ? "text-accent fill-accent" : "text-muted"
-                }`} />
-                <span className="truncate">{topic.name}</span>
-              </button>
-              {expandedTopics.includes(topic.id) && topic.sessions.length > 0 && (
-                <div className="ml-10 border-l pl-3 py-1 space-y-1">
-                  {topic.sessions.map((session) => (
-                    <div key={session.id} className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-                      <div className={`w-1.5 h-1.5 rounded-full ${
-                        session.status === "complete" ? "bg-green-500" : session.status === "review" ? "bg-accent" : "bg-muted"
-                      }`} />
-                      <span className="truncate">{session.topicName}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+          {course.topics.map((topic) => {
+            const isActive = activeTopicId === topic.id;
+            return (
+              <div key={topic.id}>
+                <button
+                  onClick={() => {
+                    if (topic.status !== "locked") {
+                      selectTopic(topic.id);
+                    }
+                  }}
+                  className={`w-full flex items-center gap-2 px-5 py-2.5 text-sm text-left transition-colors ${
+                    topic.status === "locked" ? "text-muted-foreground/50 cursor-not-allowed" :
+                    isActive ? "bg-accent/10 text-accent font-medium" :
+                    "text-foreground hover:bg-secondary"
+                  }`}
+                >
+                  <Circle className={`w-3 h-3 shrink-0 ${
+                    topic.status === "completed" ? "text-green-500 fill-green-500" :
+                    topic.status === "unlocked" ? (isActive ? "text-accent fill-accent" : "text-accent") : "text-muted"
+                  }`} />
+                  <span className="truncate flex-1">{topic.name}</span>
+                  {isActive && topic.status === "unlocked" && (
+                    <MessageSquare className="w-3 h-3 text-accent shrink-0" />
+                  )}
+                </button>
+                {expandedTopics.includes(topic.id) && topic.sessions.length > 0 && (
+                  <div className="ml-10 border-l pl-3 py-1 space-y-1">
+                    {topic.sessions.map((session) => (
+                      <div key={session.id} className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                          session.status === "complete" ? "bg-green-500" : session.status === "review" ? "bg-accent" : "bg-muted"
+                        }`} />
+                        <span className="truncate">{session.topicName}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
         <div className="p-3 border-t">
           <Link
@@ -287,17 +381,48 @@ export default function CourseLearning() {
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="px-6 py-3 border-b flex items-center gap-2 text-sm text-muted-foreground">
-          <span>{course.name}</span>
-          <ChevronRight className="w-3 h-3" />
-          <span className="text-foreground font-medium">Chat</span>
+        {/* Header with topic name and actions */}
+        <div className="px-6 py-3 border-b flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">{course.name}</span>
+          <ChevronRight className="w-3 h-3 text-muted-foreground" />
+          <span className="text-foreground font-medium flex-1">
+            {activeTopic?.name || "Select a topic"}
+          </span>
+          <div className="flex items-center gap-2">
+            {activeTopicId && activeTopic?.status === "unlocked" && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl gap-1.5 text-xs"
+                  onClick={handleNewChat}
+                  disabled={isStreaming}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  New Chat
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="rounded-xl gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => handleMarkComplete(activeTopicId)}
+                  disabled={isStreaming}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Mark Complete
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messagesLoading && <div className="flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
           {chatMessages.length === 0 && !messagesLoading && !isStreaming && (
             <div className="text-center text-muted-foreground text-sm py-12">
-              Start a conversation about {course.name}! Ask anything and I'll teach you step by step.
+              {activeTopic
+                ? `Ready to learn "${activeTopic.name}"! Say hi or ask anything to start your session.`
+                : `Select a topic from the sidebar to start learning.`}
             </div>
           )}
           {chatMessages.map((msg, i) => (
@@ -322,14 +447,14 @@ export default function CourseLearning() {
         <div className="px-6 py-4 border-t bg-card">
           <div className="flex gap-3 items-end">
             <Input
-              placeholder="Type your answer or question..."
+              placeholder={activeTopic ? `Ask about ${activeTopic.name}...` : "Select a topic to start chatting..."}
               className="rounded-xl flex-1"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              disabled={isStreaming}
+              disabled={isStreaming || !activeTopicId}
             />
-            <Button size="icon" className="rounded-xl shrink-0" onClick={handleSend} disabled={isStreaming}>
+            <Button size="icon" className="rounded-xl shrink-0" onClick={handleSend} disabled={isStreaming || !activeTopicId}>
               {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </div>
