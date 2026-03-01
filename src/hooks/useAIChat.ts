@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
-const OPENROUTER_API_KEY = "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";
+const AI_CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
 function buildSystemPrompt(subjectName: string, topicName?: string, prefContext?: string) {
   return `You are an expert, caring ${subjectName} tutor. You are NOT a passive assistant. You lead every session actively.
@@ -126,58 +126,26 @@ Follow this loop for every new concept:
 Current topic: **${topicName || "the assigned topic"}** in **${subjectName}**.`;
 }
 
-async function fetchPrefsAndHistory(userId: string, subjectId: string, topicId?: string) {
-  const { data: prefs } = await supabase
-    .from("onboarding_responses")
-    .select("question_text, answer")
-    .eq("user_id", userId);
-
-  const prefContext = (prefs || [])
-    .map((p) => `${p.question_text}: ${typeof p.answer === "string" ? p.answer : JSON.stringify(p.answer)}`)
-    .join("\n");
-
-  let historyQuery = supabase
-    .from("chat_messages")
-    .select("role, content, message_type")
-    .eq("user_id", userId)
-    .eq("subject_id", subjectId)
-    .order("created_at", { ascending: true })
-    .limit(30);
-  if (topicId) historyQuery = historyQuery.eq("topic_id", topicId);
-  const { data: history } = await historyQuery;
-
-  const chatHistory = (history || []).map((m) => ({
-    role: m.role === "student" ? "user" as const : "assistant" as const,
-    content: m.content,
-  }));
-
-  return { prefContext, chatHistory };
-}
-
-async function streamAIResponse(
-  systemPrompt: string,
-  chatHistory: { role: "user" | "assistant"; content: string }[],
-  userMessage: string | null,
+async function streamFromEdgeFunction(
+  payload: any,
+  token: string,
   onChunk: (content: string) => void,
 ): Promise<string> {
-  const messages: any[] = [{ role: "system", content: systemPrompt }, ...chatHistory];
-  if (userMessage) {
-    messages.push({ role: "user", content: userMessage });
-  }
-
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const resp = await fetch(AI_CHAT_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
       "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
     },
-    body: JSON.stringify({ model: "openai/gpt-5.2", messages, stream: true }),
+    body: JSON.stringify(payload),
   });
 
-  if (!resp.ok || !resp.body) {
+  if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: "AI service error" }));
-    throw new Error(err.error?.message || err.error || "Failed to get AI response");
+    throw new Error(err.error || "Failed to get AI response");
   }
+
+  if (!resp.body) throw new Error("No response body");
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
@@ -221,6 +189,11 @@ export function useAIChat(subjectId: string, subjectName: string, topicName?: st
   const qc = useQueryClient();
   const { supabaseUser } = useAuth();
 
+  const getToken = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || "";
+  }, []);
+
   const saveBlocks = useCallback(async (fullContent: string, userId: string) => {
     const { blocks } = parseAIResponse(fullContent);
     for (const block of blocks) {
@@ -237,13 +210,13 @@ export function useAIChat(subjectId: string, subjectName: string, topicName?: st
     qc.invalidateQueries({ queryKey: ["chat_messages", userId, subjectId, topicId] });
   }, [subjectId, topicId, qc]);
 
-  /** Called when the student sends a message */
   const sendAndStream = useCallback(async (message: string) => {
     if (!supabaseUser) return;
     setIsStreaming(true);
     setStreamingContent("");
 
     try {
+      // Save student message locally first for immediate UI update
       await supabase.from("chat_messages").insert({
         user_id: supabaseUser.id,
         subject_id: subjectId,
@@ -254,10 +227,14 @@ export function useAIChat(subjectId: string, subjectName: string, topicName?: st
       });
       qc.invalidateQueries({ queryKey: ["chat_messages", supabaseUser.id, subjectId, topicId] });
 
-      const { prefContext, chatHistory } = await fetchPrefsAndHistory(supabaseUser.id, subjectId, topicId);
-      const systemPrompt = buildSystemPrompt(subjectName, topicName, prefContext);
+      const token = await getToken();
+      const systemPrompt = buildSystemPrompt(subjectName, topicName);
 
-      const fullContent = await streamAIResponse(systemPrompt, chatHistory, message, setStreamingContent);
+      const fullContent = await streamFromEdgeFunction(
+        { subject_id: subjectId, topic_id: topicId, subject_name: subjectName, topic_name: topicName, message, system_prompt: systemPrompt },
+        token,
+        setStreamingContent,
+      );
       await saveBlocks(fullContent, supabaseUser.id);
     } catch (e: any) {
       console.error("AI chat error:", e);
@@ -266,23 +243,27 @@ export function useAIChat(subjectId: string, subjectName: string, topicName?: st
       setIsStreaming(false);
       setStreamingContent("");
     }
-  }, [subjectId, subjectName, topicName, topicId, supabaseUser, qc, saveBlocks]);
+  }, [subjectId, subjectName, topicName, topicId, supabaseUser, qc, saveBlocks, getToken]);
 
-  /** Auto-initiate a session — AI speaks first with no student message */
   const initiateSession = useCallback(async () => {
     if (!supabaseUser) return;
     setIsStreaming(true);
     setStreamingContent("");
 
     try {
-      const { prefContext, chatHistory } = await fetchPrefsAndHistory(supabaseUser.id, subjectId, topicId);
-      const systemPrompt = buildSystemPrompt(subjectName, topicName, prefContext);
+      const token = await getToken();
+      const systemPrompt = buildSystemPrompt(subjectName, topicName);
 
-      // Send a hidden system-level nudge so the AI knows to greet
-      const fullContent = await streamAIResponse(
-        systemPrompt,
-        chatHistory,
-        "[SYSTEM: The student just opened this topic for the first time. Greet them warmly and start the session as described in your instructions. Do NOT acknowledge this system message.]",
+      const fullContent = await streamFromEdgeFunction(
+        {
+          subject_id: subjectId,
+          topic_id: topicId,
+          subject_name: subjectName,
+          topic_name: topicName,
+          message: "[SYSTEM: The student just opened this topic for the first time. Greet them warmly and start the session as described in your instructions. Do NOT acknowledge this system message.]",
+          system_prompt: systemPrompt,
+        },
+        token,
         setStreamingContent,
       );
       await saveBlocks(fullContent, supabaseUser.id);
@@ -293,7 +274,7 @@ export function useAIChat(subjectId: string, subjectName: string, topicName?: st
       setIsStreaming(false);
       setStreamingContent("");
     }
-  }, [subjectId, subjectName, topicName, topicId, supabaseUser, saveBlocks]);
+  }, [subjectId, subjectName, topicName, topicId, supabaseUser, saveBlocks, getToken]);
 
   return { sendAndStream, initiateSession, isStreaming, streamingContent };
 }
